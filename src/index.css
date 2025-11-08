@@ -1,0 +1,50 @@
+body {
+  margin: 0;
+  background: #f0f2f5;
+  font-family: Arial, sans-serif;
+}
+
+/* 3. BẢN ĐỒ ĐƯỜNG */
+.map-container {
+  width: 500px;  /* 5 ô x 100px */
+  height: 500px; /* 5 ô x 100px */
+  background: #555; /* Màu đường nhựa tối */
+  position: relative;
+  display: grid;
+  grid-template-rows: repeat(5, 1fr);
+  grid-template-columns: repeat(5, 1fr);
+  border: 5px solid #aaa; /* Vỉa hè */
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+/* Kiểu dáng cho các ô nền */
+.map-cell {
+  width: 100px;
+  height: 100px;
+  box-sizing: border-box; 
+  border: 1px dashed #888; /* Vạch kẻ đường mờ */
+  
+  /* 4. FIX LOGIC NGƯỢC (phần hiển thị) */
+  /* Đẩy text tọa độ xuống góc dưới-trái cho đúng */
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  
+  color: #aaa; /* Màu text mờ */
+  font-size: 12px;
+  padding: 5px;
+}
+
+/* CSS cho bảng điều khiển (không thay đổi) */
+select, button {
+  padding: 8px 12px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+button {
+  cursor: pointer;
+}
