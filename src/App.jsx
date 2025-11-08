@@ -1,56 +1,71 @@
+// App.jsx
 import React, { useState, useEffect } from 'react';
-import { aStarSearch } from './aStar'; // Import bộ não A*
+import { aStarSearch } from './aStar';
 
 //=====================================================
-// MỚI: Component Icon Xe (inline SVG)
+// XE DÒ LINE – ICON
 //=====================================================
-function CarIcon({ color = '#2196F3' }) {
-  // Đây là một hình SVG đơn giản biểu thị 1 chiếc xe nhìn từ trên xuống
+function CarIcon({ color = '#FFC107', direction = 'down' }) {
+  const rotate = direction === 'up' ? 180 : direction === 'left' ? 270 : direction === 'right' ? 90 : 0;
   return (
-    <svg width="40" height="60" viewBox="0 0 50 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M45 60 C45 70, 35 70, 35 60 L35 40 L15 40 L15 60 C15 70, 5 70, 5 60 C5 50, 15 50, 15 60 L15 25 C15 10, 20 0, 25 0 C30 0, 35 10, 35 25 L35 60 C35 50, 45 50, 45 60 Z" fill={color} />
-      <rect x="10" y="10" width="30" height="30" rx="5" fill="#aadaff" /> 
-      <rect x="7" y="65" width="10" height="15" rx="3" fill="#222" /> 
-      <rect x="33" y="65" width="10" height="15" rx="3" fill="#222" /> 
-    </svg>
+    <div style={{ transform: `rotate(${rotate}deg)` }}>
+      <svg width="80" height="110" viewBox="0 0 80 110" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="25" width="60" height="50" rx="8" fill={color} stroke="#000" strokeWidth="2"/>
+        <rect x="15" y="30" width="50" height="40" rx="5" fill="#fff"/>
+        <rect x="55" y="30" width="15" height="35" rx="3" fill={color}/>
+        <rect x="8" y="20" width="45" height="12" rx="3" fill="#81C784"/>
+        <circle cx="22" cy="70" r="11" fill="#222"/>
+        <circle cx="58" cy="70" r="11" fill="#222"/>
+        <circle cx="22" cy="70" r="6" fill="#444"/>
+        <circle cx="58" cy="70" r="6" fill="#444"/>
+        <text x="40" y="50" fontSize="9" fill="#000" fontWeight="bold" textAnchor="middle">LINE</text>
+      </svg>
+    </div>
   );
 }
 
 //=====================================================
-// CẬP NHẬT: Component Xe
+// XE – DI CHUYỂN
 //=====================================================
-function Vehicle({ id, pos, status }) {
-  // Logic tọa độ này ĐÃ ĐÚNG (hàng 0 ở dưới cùng)
-  const top = (4 - pos[0]) * 100; // 100px mỗi ô
-  const left = pos[1] * 100;
-  
-  // V1 màu đỏ, V2 màu xanh
-  let color = id === 'V1' ? '#f44336' : '#2196F3'; 
-  if (status === 'idle') color = '#9E9E9E'; // Màu xám khi idle
-  
+function Vehicle({ id, pos, status, nextPos }) {
+  const cellSize = 200;
+  const x = pos[1] * cellSize;
+  const y = (4 - pos[0]) * cellSize;
+
+  let direction = 'down';
+  if (nextPos) {
+    const dx = nextPos[1] - pos[1];
+    const dy = nextPos[0] - pos[0];
+    if (dx === 1) direction = 'right';
+    else if (dx === -1) direction = 'left';
+    else if (dy === 1) direction = 'down';
+    else if (dy === -1) direction = 'up';
+  }
+
+  const color = id === 'V1' ? '#FF5722' : '#4CAF50';
+  const idleColor = '#999';
+
   return (
     <div
       style={{
-        // Dùng kích thước ô (100x100) để căn giữa icon xe
-        width: 100, 
-        height: 100,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
         position: 'absolute',
-        top: top,
-        left: left,
-        transition: 'top 0.4s linear, left 0.4s linear', // Hiệu ứng di chuyển
-        zIndex: 10
-      }}>
-      <CarIcon color={color} />
-      <div style={{ 
-        color: 'white', 
-        fontWeight: 'bold', 
-        fontSize: 14, 
-        marginTop: 4, 
-        textShadow: '0 0 3px black' // Đổ bóng cho text
+        left: x - 40,
+        top: y - 55,
+        width: 80,
+        height: 110,
+        transition: 'all 0.8s ease-in-out',
+        zIndex: 10,
+        pointerEvents: 'none',
+      }}
+    >
+      <CarIcon color={status === 'idle' ? idleColor : color} direction={direction} />
+      <div style={{
+        textAlign: 'center',
+        marginTop: 4,
+        color: '#000',
+        fontWeight: 'bold',
+        fontSize: 14,
+        textShadow: '0 0 3px white',
       }}>
         {id}
       </div>
@@ -58,170 +73,181 @@ function Vehicle({ id, pos, status }) {
   );
 }
 
-// Bảng điều khiển (Không thay đổi)
+//=====================================================
+// BẢNG ĐIỀU KHIỂN
+//=====================================================
 function ControlPanel({ vehicle, onChange, onStart }) {
   const { id, startPos, endPos, status } = vehicle;
-  const startOptions = Array.from({ length: 5 }, (_, i) => [0, i]); // [0,0] -> [0,4]
-  const endOptions = Array.from({ length: 5 }, (_, i) => [4, i]);   // [4,0] -> [4,4]
+
+  const startPoints = Array.from({ length: 4 }, (_, c) => [0, c]); // hàng 0
+  const endPoints = Array.from({ length: 5 }, (_, r) => [r, 2]);   // cột 2
 
   return (
-    <div style={{ border: '1px solid #ddd', padding: 15, borderRadius: 8, background: '#fff', width: 250 }}>
-      <h3>Xe {id}</h3>
-      <div style={{ marginBottom: 10 }}>
-        <label>Điểm bắt đầu: </label>
+    <div style={{
+      border: '2px solid #000',
+      padding: 16,
+      borderRadius: 10,
+      background: '#fff',
+      width: 300,
+      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    }}>
+      <h3 style={{ margin: '0 0 12px', color: '#1976d2' }}>XE {id} – DÒ LINE</h3>
+
+      <div style={{ marginBottom: 12 }}>
+        <label><strong>Xuất phát (hàng 0):</strong></label>
         <select
           value={startPos.join(',')}
           onChange={e => onChange('startPos', e.target.value.split(',').map(Number))}
-          disabled={status === 'moving'}>
-          {startOptions.map(pos => (
-            <option key={pos.join(',')} value={pos.join(',')}>
-              {pos.join(',')}
-            </option>
+          disabled={status === 'moving'}
+          style={{ width: '100%', padding: 8, marginTop: 4 }}
+        >
+          {startPoints.map(p => (
+            <option key={p.join(',')} value={p.join(',')}>[{p.join(', ')}]</option>
           ))}
         </select>
       </div>
-      <div style={{ marginBottom: 15 }}>
-        <label>Điểm kết thúc: </label>
+
+      <div style={{ marginBottom: 16 }}>
+        <label><strong>Kết thúc (cột 2):</strong></label>
         <select
           value={endPos.join(',')}
           onChange={e => onChange('endPos', e.target.value.split(',').map(Number))}
-          disabled={status === 'moving'}>
-          {endOptions.map(pos => (
-            <option key={pos.join(',')} value={pos.join(',')}>
-              {pos.join(',')}
-            </option>
+          disabled={status === 'moving'}
+          style={{ width: '100%', padding: 8, marginTop: 4 }}
+        >
+          {endPoints.map(p => (
+            <option key={p.join(',')} value={p.join(',')}>[{p.join(', ')}]</option>
           ))}
         </select>
       </div>
-      <button onClick={onStart} disabled={status === 'moving'}
-        style={{ width: '100%', padding: '10px', fontSize: 16, background: '#4CAF50', color: 'white', border: 'none', borderRadius: 5 }}>
-        {status === 'moving' ? 'Đang di chuyển...' : `Bắt đầu Xe ${id}`}
+
+      <button
+        onClick={onStart}
+        disabled={status === 'moving'}
+        style={{
+          width: '100%',
+          padding: 12,
+          fontSize: 16,
+          background: status === 'moving' ? '#999' : '#1976d2',
+          color: 'white',
+          border: 'none',
+          borderRadius: 6,
+          fontWeight: 'bold',
+          cursor: status === 'moving' ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {status === 'moving' ? 'Đang dò line...' : `Bắt đầu ${id}`}
       </button>
     </div>
   );
 }
 
-// Component App chính (Gần như giữ nguyên logic)
+//=====================================================
+// APP CHÍNH – DÙNG HÌNH ẢNH VẠCH
+//=====================================================
 export default function App() {
   const [v1, setV1] = useState({
     id: 'V1',
     startPos: [0, 0],
-    endPos: [4, 4],
-    pos: [0, 0], 
-    path: [],   
-    status: 'idle' 
+    endPos: [4, 2],
+    pos: [0, 0],
+    path: [],
+    status: 'idle',
   });
-  
   const [v2, setV2] = useState({
     id: 'V2',
-    startPos: [0, 1],
-    endPos: [4, 3],
-    pos: [0, 1],
+    startPos: [0, 3],
+    endPos: [2, 2],
+    pos: [0, 3],
     path: [],
-    status: 'idle'
+    status: 'idle',
   });
 
-  const handleStart = (vehicleId) => {
-    const setVehicle = vehicleId === 'V1' ? setV1 : setV2;
-    const vehicleState = vehicleId === 'V1' ? v1 : v2;
-    const path = aStarSearch(vehicleState.startPos, vehicleState.endPos);
+  const handleStart = (id) => {
+    const setV = id === 'V1' ? setV1 : setV2;
+    const v = id === 'V1' ? v1 : v2;
 
-    if (path.length > 0) {
-      setVehicle(prev => ({
-        ...prev,
-        path: path.slice(1), 
-        pos: prev.startPos, 
-        status: 'moving'
-      }));
-    } else {
-      alert('Không tìm thấy đường đi cho ' + vehicleId);
+    const path = aStarSearch(v.startPos, v.endPos);
+    if (path.length === 0) {
+      alert(`Xe ${id}: Không có đường đi hợp lệ!`);
+      return;
     }
+
+    setV({
+      ...v,
+      path: path.slice(1),
+      pos: v.startPos,
+      status: 'moving',
+    });
   };
 
-  const updateVehicle = (id, field, value) => {
-    const setVehicle = id === 'V1' ? setV1 : setV2;
-    setVehicle(prev => ({
-      ...prev,
-      [field]: value
-    }));
+  const update = (id, field, val) => {
+    const setV = id === 'V1' ? setV1 : setV2;
+    setV(p => ({ ...p, [field]: val }));
   };
 
-  // "Game Loop" (Không thay đổi)
   useEffect(() => {
     const timer = setInterval(() => {
-      setV1(prev => {
-        if (prev.status !== 'moving' || prev.path.length === 0) {
-          return { ...prev, status: 'idle' };
-        }
-        const nextPos = prev.path[0];
-        const remainingPath = prev.path.slice(1);
-        return {
-          ...prev,
-          pos: nextPos,
-          path: remainingPath,
-          status: remainingPath.length === 0 ? 'idle' : 'moving'
-        };
+      [setV1, setV2].forEach((setV, i) => {
+        const v = i === 0 ? v1 : v2;
+        setV(p => {
+          if (p.status !== 'moving' || p.path.length === 0) {
+            return { ...p, status: 'idle' };
+          }
+          const next = p.path[0];
+          const rest = p.path.slice(1);
+          return { ...p, pos: next, path: rest, status: rest.length ? 'moving' : 'idle' };
+        });
       });
-
-      setV2(prev => {
-        if (prev.status !== 'moving' || prev.path.length === 0) {
-          return { ...prev, status: 'idle' };
-        }
-        const nextPos = prev.path[0];
-        const remainingPath = prev.path.slice(1);
-        return {
-          ...prev,
-          pos: nextPos,
-          path: remainingPath,
-          status: remainingPath.length === 0 ? 'idle' : 'moving'
-        };
-      });
-      
-    }, 1000); // Tốc độ di chuyển: 1 giây/ô
-
+    }, 800);
     return () => clearInterval(timer);
   }, []);
 
+  // Tọa độ Y của 3 hàng ngang (hàng 0, 1, 2)
+  const rowY = [100, 300, 500]; // giữa ô
+
   return (
-    <div style={{ padding: 20, fontFamily: 'Arial' }}>
-      {/* 1. ĐÃ BỎ TIÊU ĐỀ */}
-      {/* <h2>Fleet 5×5 — A* Simulation</h2> */} 
-      <div style={{ display: 'flex', gap: 30 }}>
-        
+    <div style={{ padding: 30, background: '#f8f9fa', minHeight: '100vh', fontFamily: 'Arial' }}>
+      <h1 style={{ textAlign: 'center', marginBottom: 20, color: '#1976d2', fontWeight: 'bold' }}>
+        ĐỒ ÁN: XE DÒ LINE – VẠCH HÌNH ẢNH
+      </h1>
+
+      <div style={{ display: 'flex', gap: 50, justifyContent: 'center', flexWrap: 'wrap' }}>
+        {/* MAP */}
         <div className="map-container">
-          {/* 4. FIX LOGIC "NGƯỢC" */}
-          {/* Render lưới ngược lại.
-            Dùng `map` với index `r_idx` (0 -> 4).
-            Tính `r` thực tế (4 -> 0).
-            Grid CSS sẽ render hàng `r=4` lên trên cùng, và hàng `r=0` xuống dưới cùng.
-            Điều này làm cho text `0,0` hiển thị ở góc dưới-trái.
-          */}
-          {Array.from({ length: 5 }, (_, r_idx) => {
-            const r = 4 - r_idx; // r_idx=0 -> r=4; r_idx=4 -> r=0
-            return Array.from({ length: 5 }, (_, c) => (
+          {/* Ô lưới */}
+          {Array.from({ length: 4 }, (_, rIdx) => {
+            const r = 3 - rIdx;
+            return Array.from({ length: 4 }, (_, c) => (
               <div key={`${r}-${c}`} className="map-cell">
                 {r},{c}
               </div>
             ));
           })}
-          
-          {/* 2. XE MỚI (Tự động cập nhật) */}
-          <Vehicle id={v1.id} pos={v1.pos} status={v1.status} />
-          <Vehicle id={v2.id} pos={v2.pos} status={v2.status} />
+
+          {/* VẠCH NGANG – DÙNG HÌNH ẢNH */}
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
+            {rowY.map((y, idx) => (
+              <div key={idx} style={{ position: 'absolute', top: y - 15, left: 0, width: '100%', height: 30, display: 'flex', justifyContent: 'center' }}>
+                <img src="/line-segment.png" alt="vạch" style={{ height: '100%', objectFit: 'contain' }} />
+              </div>
+            ))}
+          </div>
+
+          {/* ĐƯỜNG DỌC CỘT 2 – VẪN DÙNG SVG */}
+          <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
+            <rect x="385" y="0" width="30" height="800" fill="#444" rx="15" />
+            <line x1="400" y1="0" x2="400" y2="800" stroke="#fff" strokeWidth="8" strokeDasharray="50,30" strokeLinecap="round" />
+          </svg>
+
+          {/* Xe */}
+          <Vehicle id={v1.id} pos={v1.pos} status={v1.status} nextPos={v1.path[0]} />
+          <Vehicle id={v2.id} pos={v2.pos} status={v2.status} nextPos={v2.path[0]} />
         </div>
 
-        {/* KHU ĐIỀU KHIỂN */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <ControlPanel
-            vehicle={v1}
-            onChange={(field, value) => updateVehicle('V1', field, value)}
-            onStart={() => handleStart('V1')}
-          />
-          <ControlPanel
-            vehicle={v2}
-            onChange={(field, value) => updateVehicle('V2', field, value)}
-            onStart={() => handleStart('V2')}
-          />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 25 }}>
+          <ControlPanel vehicle={v1} onChange={(f, v) => update('V1', f, v)} onStart={() => handleStart('V1')} />
+          <ControlPanel vehicle={v2} onChange={(f, v) => update('V2', f, v)} onStart={() => handleStart('V2')} />
         </div>
       </div>
     </div>
