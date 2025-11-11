@@ -1,8 +1,9 @@
 /* index.css */
 body {
   margin: 0;
-  background: #f8f9fa;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
   font-family: 'Segoe UI', sans-serif;
+  color: #e2e8f0;
 }
 
 .map-container {
@@ -12,21 +13,26 @@ body {
   display: grid;
   grid-template-rows: repeat(4, 200px);
   grid-template-columns: repeat(4, 200px);
-  border: 12px solid #000;
-  background: #fff;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  border: 12px solid #1a1a1a;
+  background: linear-gradient(135deg, #2c3e50 0%, #1a252f 100%);
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.6),
+    inset 0 0 60px rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .map-cell {
   box-sizing: border-box;
-  border: 3px solid #000;
+  border: 2px solid rgba(255, 255, 255, 0.2);
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
   font-size: 14px;
-  color: #444;
+  color: #e0e0e0;
   padding: 8px;
   font-weight: bold;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* Làn đường cố định – giống ảnh */

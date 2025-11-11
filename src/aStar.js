@@ -6,7 +6,7 @@ function heuristic(a, b) {
 }
 
 export function aStarSearch(start, end) {
-  const SIZE = 5;
+  const SIZE = ;
 
   if (!isValidPath(start[0], start[1]) || !isValidPath(end[0], end[1])) {
     return [];

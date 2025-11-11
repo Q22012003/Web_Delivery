@@ -27,10 +27,13 @@ function CarIcon({ color = '#FFC107', direction = 'down' }) {
 //=====================================================
 // XE – DI CHUYỂN
 //=====================================================
-function Vehicle({ id, pos, status, nextPos }) {
+function Vehicle({ id, pos, status, nextPos, zIndex = 100 }) {
   const cellSize = 200;
   const x = pos[1] * cellSize;
   const y = (4 - pos[0]) * cellSize;
+
+  // Fix: Xe ở hàng 0 (dưới cùng) bị che → đẩy lên trên
+ // const topOffset = pos[0] === 0 ? 600 : -55;
 
   let direction = 'down';
   if (nextPos) {
@@ -54,7 +57,7 @@ function Vehicle({ id, pos, status, nextPos }) {
         width: 80,
         height: 110,
         transition: 'all 0.8s ease-in-out',
-        zIndex: 10,
+        zIndex: 20,
         pointerEvents: 'none',
       }}
     >
@@ -62,10 +65,10 @@ function Vehicle({ id, pos, status, nextPos }) {
       <div style={{
         textAlign: 'center',
         marginTop: 4,
-        color: '#000',
+        color: '#fff',
         fontWeight: 'bold',
         fontSize: 14,
-        textShadow: '0 0 3px white',
+        textShadow: '0 0 8px rgba(0,0,0,0.8)',
       }}>
         {id}
       </div>
@@ -207,10 +210,23 @@ export default function App() {
   const rowY = [100, 300, 500]; // giữa ô
 
   return (
-    <div style={{ padding: 30, background: '#f8f9fa', minHeight: '100vh', fontFamily: 'Arial' }}>
-      <h1 style={{ textAlign: 'center', marginBottom: 20, color: '#1976d2', fontWeight: 'bold' }}>
-        ĐỒ ÁN: XE DÒ LINE – VẠCH HÌNH ẢNH
-      </h1>
+    <div style={{
+      padding: 30,
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+      minHeight: '100vh',
+      fontFamily: 'Arial, sans-serif',
+      color: '#e2e8f0',
+    }}>
+     <h1 style={{
+      textAlign: 'center',
+      marginBottom: 20,
+      color: '#60a5fa',
+      fontWeight: 'bold',
+      textShadow: '0 0 20px rgba(96, 165, 250, 0.5)',
+      letterSpacing: '1px',
+    }}>
+  ĐỒ ÁN: XE DÒ LINE – VẠCH HÌNH ẢNH
+</h1>
 
       <div style={{ display: 'flex', gap: 50, justifyContent: 'center', flexWrap: 'wrap' }}>
         {/* MAP */}
@@ -225,24 +241,15 @@ export default function App() {
             ));
           })}
 
-          {/* VẠCH NGANG – DÙNG HÌNH ẢNH */}
-          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
-            {rowY.map((y, idx) => (
-              <div key={idx} style={{ position: 'absolute', top: y - 15, left: 0, width: '100%', height: 30, display: 'flex', justifyContent: 'center' }}>
-                <img src="/line-segment.png" alt="vạch" style={{ height: '100%', objectFit: 'contain' }} />
-              </div>
-            ))}
-          </div>
-
           {/* ĐƯỜNG DỌC CỘT 2 – VẪN DÙNG SVG */}
           <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1 }}>
-            <rect x="385" y="0" width="30" height="800" fill="#444" rx="15" />
-            <line x1="400" y1="0" x2="400" y2="800" stroke="#fff" strokeWidth="8" strokeDasharray="50,30" strokeLinecap="round" />
-          </svg>
+          <rect x="385" y="0" width="30" height="800" fill="#34495e" rx="15" opacity="0.9" />
+         <line x1="400" y1="0" x2="400" y2="800" stroke="#1abc9c" strokeWidth="6" strokeDasharray="40,25" strokeLinecap="round" />
+         </svg>
 
           {/* Xe */}
-          <Vehicle id={v1.id} pos={v1.pos} status={v1.status} nextPos={v1.path[0]} />
-          <Vehicle id={v2.id} pos={v2.pos} status={v2.status} nextPos={v2.path[0]} />
+          <Vehicle id={v1.id} pos={v1.pos} status={v1.status} nextPos={v1.path[0]} zIndex={100} />
+          <Vehicle id={v2.id} pos={v2.pos} status={v2.status} nextPos={v2.path[0]} zIndex={100} />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 25 }}>
