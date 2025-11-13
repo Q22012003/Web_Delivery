@@ -1,23 +1,28 @@
-// aStar.js
-import { isValidPath } from './utils';
+
+const SIZE = 6; // 6x6: row 0-5, col 0-5
+
+// ĐƯỜNG ĐI HỢP LỆ: hàng 1 + cột 5 + hàng 5 (đường ngang trên + dọc phải + ngang dưới)
+const isValidPath = (r, c) => {
+  return r === 1 || c === 5 || r === 5;
+};
 
 function heuristic(a, b) {
   return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
 }
 
-export function aStarSearch(start, end) {
-  const SIZE = ;
-
+export function aStarSearch(start, end, returnToStart = true) {
   if (!isValidPath(start[0], start[1]) || !isValidPath(end[0], end[1])) {
     return [];
   }
 
-  function Node(pos, parent = null, g = 0, h = 0) {
-    this.pos = pos;
-    this.parent = parent;
-    this.g = g;
-    this.h = h;
-    this.f = g + h;
+  class Node {
+    constructor(pos, parent = null, g = 0, h = 0) {
+      this.pos = pos;
+      this.parent = parent;
+      this.g = g;
+      this.h = h;
+      this.f = g + h;
+    }
   }
 
   const open = [];
@@ -39,7 +44,13 @@ export function aStarSearch(start, end) {
         path.push(p.pos);
         p = p.parent;
       }
-      return path.reverse();
+      const fullPath = path.reverse();
+
+      if (returnToStart) {
+        const returnPath = aStarSearch(end, start, false);
+        return returnPath.length > 0 ? fullPath.concat(returnPath.slice(1)) : fullPath;
+      }
+      return fullPath;
     }
 
     const [r, c] = current.pos;
@@ -50,10 +61,13 @@ export function aStarSearch(start, end) {
     if (c < SIZE - 1 && isValidPath(r, c + 1)) neighbors.push([r, c + 1]);
 
     for (const n of neighbors) {
-      if (closed.has(n.join(','))) continue;
+      const nKey = n.join(',');
+      if (closed.has(nKey)) continue;
+
       const g = current.g + 1;
       const h = heuristic(n, end);
-      const existing = open.find(o => o.pos[0] === n[0] && o.pos[1] === n[1]);
+      const existing = open.find(o => o.pos.join(',') === nKey);
+
       if (existing) {
         if (g < existing.g) {
           existing.g = g;
