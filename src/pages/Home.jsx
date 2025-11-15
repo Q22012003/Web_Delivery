@@ -165,43 +165,47 @@ export default function Home() {
 
       {/* 2 nút chuyển trang */}
       <div style={{ textAlign: "center", margin: "50px 0" }}>
-        <Link to="/">
-          <button
-            style={{
-              padding: "16px 40px",
-              fontSize: "1.4rem",
-              background: "#4ade80",
-              color: "white",
-              border: "none",
-              borderRadius: 14,
-              fontWeight: "bold",
-              margin: "0 20px",
-              cursor: "pointer",
-              boxShadow: "0 6px 20px rgba(74,222,128,0.4)",
-            }}
-          >
-            MÔ PHỎNG A*
-          </button>
-        </Link>
+      <Link to="/">
+    <button
+      style={{
+        padding: "16px 40px",
+        fontSize: "1.4rem",
+        background: "rgba(96,165,250,0.15)",     // xanh nhạt trong suốt
+        color: "#60a5fa",                         // xanh neon
+        border: "2px solid rgba(96,165,250,0.4)", // viền sáng
+        borderRadius: 14,
+        fontWeight: "bold",
+        margin: "0 20px",
+        cursor: "pointer",
+        backdropFilter: "blur(4px)",
+        boxShadow: "0 0 25px rgba(96,165,250,0.25)", // ánh đèn xanh
+        transition: "0.2s",
+      }}
+    >
+      MÔ PHỎNG A*
+    </button>
+  </Link>
 
-        <Link to="/real-time">
-          <button
-            style={{
-              padding: "16px 40px",
-              fontSize: "1.4rem",
-              background: "#f59e0b",
-              color: "white",
-              border: "none",
-              borderRadius: 14,
-              fontWeight: "bold",
-              margin: "0 20px",
-              cursor: "pointer",
-              boxShadow: "0 6px 20px rgba(245,158,11,0.4)",
-            }}
-          >
-            CHẠY THỜI GIAN THỰC
-          </button>
-        </Link>
+  <Link to="/real-time">
+    <button
+      style={{
+        padding: "16px 40px",
+        fontSize: "1.4rem",
+        background: "rgba(52,211,153,0.15)",         // xanh mint nhạt
+        color: "#34d399",                             // xanh lá neon
+        border: "2px solid rgba(52,211,153,0.4)",     // viền sáng lá
+        borderRadius: 14,
+        fontWeight: "bold",
+        margin: "0 20px",
+        cursor: "pointer",
+        backdropFilter: "blur(4px)",
+        boxShadow: "0 0 25px rgba(52,211,153,0.25)",   // ánh mint
+        transition: "0.2s",
+      }}
+    >
+      CHẠY THỜI GIAN THỰC
+    </button>
+  </Link>
       </div>
 
       {/* Nhật ký giao hàng */}
