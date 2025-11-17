@@ -2,8 +2,9 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import MapGrid from "../components/MapGrid";
-import ControlPanel from "../components/ControlPanel";
+import UnifiedControlPanel from "../components/UnifiedControlPanel"; // Import new component
 import { aStarSearch } from "../utils/aStar";
+import { checkForConflicts, findMinDelay } from "../utils/collisionAvoidance"; // Thêm findMinDelay
 
 export default function Home() {
   // === Đồng hồ thời gian thực ===
@@ -14,8 +15,20 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  const formatTime = () => currentTime.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const formatDate = () => currentTime.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" });
+  const formatTime = () =>
+    currentTime.toLocaleTimeString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  const formatDate = () =>
+    currentTime.toLocaleDateString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
 
   // === State xe V1 ===
   const [v1, setV1] = useState({
@@ -46,7 +59,7 @@ export default function Home() {
   const formatPos = (pos) => `${pos[0]}.${pos[1]}`;
   const getPathString = (path) => path.map(formatPos).join(" → ");
 
-  const addLog = (id, deliveries, path) => {
+  const addLog = (id, deliveries, pathOrMessage) => {
     const now = new Date().toLocaleString("vi-VN", {
       timeZone: "Asia/Ho_Chi_Minh",
       day: "2-digit",
@@ -56,30 +69,79 @@ export default function Home() {
       minute: "2-digit",
       second: "2-digit",
     });
-    const pathStr = getPathString(path);
-    setLogs((prev) => [...prev, `[${now}] Xe ${id}: ${pathStr} (lần thứ ${deliveries})`]);
+  
+    let message;
+    if (typeof pathOrMessage === "string") {
+      message = `[${now}] System: ${pathOrMessage}`;
+    } else {
+      const pathStr = pathOrMessage.map(p => `${p[0]}.${p[1]}`).join(" → ");
+      message = `[${now}] Xe ${id}: ${pathStr} (lần thứ ${deliveries})`;
+    }
+  
+    setLogs(prev => [...prev, message]);
   };
 
-  const handleStart = (id) => {
-    const vehicle = id === "V1" ? v1 : v2;
-    const setVehicle = id === "V1" ? setV1 : setV2;
+  const handleStart = (id, delay = 0) => {
+    setTimeout(() => {
+      const vehicle = id === "V1" ? v1 : v2;
+      const setVehicle = id === "V1" ? setV1 : setV2;
 
-    if (vehicle.status === "moving") return;
+      if (vehicle.status === "moving") return;
 
-    const fullPath = aStarSearch(vehicle.startPos, vehicle.endPos, true);
-    if (fullPath.length === 0) {
-      alert(`Xe ${id}: Không tìm thấy đường đi!`);
+      const fullPath = aStarSearch(vehicle.startPos, vehicle.endPos, true);
+      if (fullPath.length === 0) {
+        alert(`Xe ${id}: Không tìm thấy đường đi!`);
+        return;
+      }
+
+      setVehicle({
+        ...vehicle,
+        pos: vehicle.startPos,
+        path: fullPath.slice(1),
+        status: "moving",
+        deliveries: vehicle.deliveries + 1,
+        tripLog: fullPath,
+      });
+    }, delay);
+  };
+
+  const handleStartTogether = () => {
+    if (v1.status === "moving" || v2.status === "moving") return;
+  
+    const v1Path = aStarSearch(v1.startPos, v1.endPos, true);
+    const v2Path = aStarSearch(v2.startPos, v2.endPos, true);
+  
+    if (v1Path.length === 0 || v2Path.length === 0) {
+      alert("Một hoặc cả hai xe không tìm thấy đường đi!");
       return;
     }
-
-    setVehicle({
-      ...vehicle,
-      pos: vehicle.startPos,
-      path: fullPath.slice(1),
-      status: "moving",
-      deliveries: vehicle.deliveries + 1,
-      tripLog: fullPath,
-    });
+  
+    const hasConflict = checkForConflicts(v1Path, v2Path);
+    let v2Delay = 0;
+  
+    if (hasConflict) {
+      const minDelaySteps = findMinDelay(v1Path, v2Path);
+      v2Delay = Math.max(2000, minDelaySteps * 800);
+      addLog("System", 0, `PHÁT HIỆN XUNG ĐỘT! V2 sẽ delay ${v2Delay/1000}s để tránh va chạm`);
+    } else {
+      addLog("System", 0, "2 xe xuất phát cùng lúc – Không có xung đột đường đi");
+    }
+  
+    // Tránh va chạm khi về kho: xe nào về trước thì delay xe kia thêm 1 bước
+    const v1ReturnTime = v1Path.length * 800;
+    const v2ReturnTime = v2Path.length * 800 + v2Delay;
+    
+    if (Math.abs(v1ReturnTime - v2ReturnTime) < 800) {
+      if (v1ReturnTime < v2ReturnTime) {
+        v2Delay += 1600;
+        addLog("System", 0, "V1 về kho trước → V2 delay thêm 1.6s để tránh đụng khi về");
+      } else {
+        addLog("System", 0, "V2 về kho trước → cho phép về an toàn");
+      }
+    }
+  
+    handleStart("V1", 0);
+    handleStart("V2", v2Delay);
   };
 
   const updateVehicle = (id, field, value) => {
@@ -133,7 +195,14 @@ export default function Home() {
     >
       {/* Đồng hồ thời gian thực */}
       <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <div style={{ fontSize: "3.8rem", fontWeight: "bold", color: "#60a5fa", textShadow: "0 0 30px rgba(96,165,250,0.6)" }}>
+        <div
+          style={{
+            fontSize: "3.8rem",
+            fontWeight: "bold",
+            color: "#60a5fa",
+            textShadow: "0 0 30px rgba(96,165,250,0.6)",
+          }}
+        >
           {formatTime()}
         </div>
         <div style={{ fontSize: "1.6rem", color: "#94a3b8" }}>
@@ -151,61 +220,80 @@ export default function Home() {
           textShadow: "0 0 30px rgba(96,165,250,0.6)",
         }}
       >
-        XE GIAO HÀNG TỰ ĐỘNG 
+        XE GIAO HÀNG TỰ ĐỘNG
       </h1>
 
-      <div style={{ display: "flex", gap: 60, justifyContent: "center", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 60,
+          justifyContent: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <MapGrid v1={v1} v2={v2} />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
-          <ControlPanel vehicle={v1} onChange={(f, v) => updateVehicle("V1", f, v)} onStart={() => handleStart("V1")} />
-          <ControlPanel vehicle={v2} onChange={(f, v) => updateVehicle("V2", f, v)} onStart={() => handleStart("V2")} />
-        </div>
+        <UnifiedControlPanel
+          v1={v1}
+          v2={v2}
+          onChange={updateVehicle}
+          onStart={handleStart}
+          onStartTogether={handleStartTogether}
+        />
       </div>
 
-      {/* 2 nút chuyển trang */}
-      <div style={{ textAlign: "center", margin: "50px 0" }}>
-      <Link to="/">
-    <button
-      style={{
-        padding: "16px 40px",
-        fontSize: "1.4rem",
-        background: "rgba(96,165,250,0.15)",     // xanh nhạt trong suốt
-        color: "#60a5fa",                         // xanh neon
-        border: "2px solid rgba(96,165,250,0.4)", // viền sáng
-        borderRadius: 14,
-        fontWeight: "bold",
-        margin: "0 20px",
-        cursor: "pointer",
-        backdropFilter: "blur(4px)",
-        boxShadow: "0 0 25px rgba(96,165,250,0.25)", // ánh đèn xanh
-        transition: "0.2s",
-      }}
-    >
-      MÔ PHỎNG A*
-    </button>
-  </Link>
+      {/* 2 nút chuyển trang – fix kích thước bằng nhau, responsive */}
+      <div
+        style={{
+          textAlign: "center",
+          margin: "50px 0",
+          display: "flex",
+          justifyContent: "center",
+          gap: "40px",
+          flexWrap: "wrap",
+        }}
+      >
+        <Link to="/">
+          <button
+            style={{
+              width: "clamp(180px, 22vw, 260px)",
+              aspectRatio: "3 / 1",
+              fontSize: "clamp(1rem, 1.4vw, 1.4rem)",
+              background: "rgba(96,165,250,0.15)",
+              color: "#60a5fa",
+              border: "2px solid rgba(96,165,250,0.4)",
+              borderRadius: 14,
+              fontWeight: "bold",
+              cursor: "pointer",
+              backdropFilter: "blur(4px)",
+              boxShadow: "0 0 25px rgba(96,165,250,0.25)",
+              transition: "0.2s",
+            }}
+          >
+            MÔ PHỎNG 
+          </button>
+        </Link>
 
-  <Link to="/real-time">
-    <button
-      style={{
-        padding: "16px 40px",
-        fontSize: "1.4rem",
-        background: "rgba(52,211,153,0.15)",         // xanh mint nhạt
-        color: "#34d399",                             // xanh lá neon
-        border: "2px solid rgba(52,211,153,0.4)",     // viền sáng lá
-        borderRadius: 14,
-        fontWeight: "bold",
-        margin: "0 20px",
-        cursor: "pointer",
-        backdropFilter: "blur(4px)",
-        boxShadow: "0 0 25px rgba(52,211,153,0.25)",   // ánh mint
-        transition: "0.2s",
-      }}
-    >
-      CHẠY THỜI GIAN THỰC
-    </button>
-  </Link>
+        <Link to="/real-time">
+          <button
+            style={{
+              width: "clamp(180px, 22vw, 260px)",
+              aspectRatio: "3 / 1",
+              fontSize: "clamp(1rem, 1.4vw, 1.4rem)",
+              background: "rgba(52,211,153,0.15)", // Xanh lá nhạt
+              color: "#34d399", // Xanh lá chữ
+              border: "2px solid rgba(52,211,153,0.4)", // Viền xanh lá nhạt
+              borderRadius: 14,
+              fontWeight: "bold",
+              cursor: "pointer",
+              backdropFilter: "blur(4px)",
+              boxShadow: "0 0 25px rgba(52,211,153,0.25)", // Shadow xanh lá
+              transition: "0.2s",
+            }}
+          >
+            CHẠY THỜI GIAN THỰC
+          </button>
+        </Link>
       </div>
 
       {/* Nhật ký giao hàng */}
@@ -254,7 +342,8 @@ export default function Home() {
             textAlign: "center",
           }}
         >
-          V1: <strong style={{ color: "#ff6b6b" }}>{v1.deliveries}</strong> lần giao  |   V2:{" "}
+          V1: <strong style={{ color: "#ff6b6b" }}>{v1.deliveries}</strong> lần
+          giao  |   V2:{" "}
           <strong style={{ color: "#51cf66" }}>{v2.deliveries}</strong> lần giao
         </div>
       </div>

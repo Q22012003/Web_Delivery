@@ -2,20 +2,21 @@
 body {
   margin: 0;
   background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  font-family: 'Segoe UI', sans-serif;
+  font-family: "Segoe UI", sans-serif;
   color: #e2e8f0;
 }
 
 .map-container {
-  width: 1000px;
-  height: 1000px;
+  width: 70vw;
+  height: 70vw; /* để map luôn là hình vuông */
   position: relative;
   display: grid;
-  grid-template-rows: repeat(6, 166.66px);
-  grid-template-columns: repeat(6, 166.66px);
+  grid-template-columns: repeat(6, 1fr);
+  grid-template-rows: repeat(6, 1fr);
   border: 12px solid #1a1a1a;
   background: linear-gradient(135deg, #2c3e50 0%, #1a1a252f 100%);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.6), inset 0 0 60px rgba(255,255,255,0.05);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6),
+    inset 0 0 60px rgba(255, 255, 255, 0.05);
   border-radius: 16px;
   overflow: hidden;
 }
@@ -24,15 +25,15 @@ body {
   width: 166.66px;
   height: 166.66px;
   box-sizing: border-box;
-  border: 2px solid rgba(255,255,255,0.2);
+  border: 2px solid rgba(255, 255, 255, 0.2);
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  font-size: 14px;
+  font-size: 1vw;
   color: #e0e0e0;
-  padding: 8px;
+  padding: 0.5vw;
   font-weight: bold;
-  background: rgba(255,255,255,0.03);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 /* Làn đường cố định – giống ảnh */
