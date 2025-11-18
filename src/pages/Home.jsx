@@ -4,7 +4,10 @@ import { Link } from "react-router-dom";
 import MapGrid from "../components/MapGrid";
 import UnifiedControlPanel from "../components/UnifiedControlPanel"; // Import new component
 import { aStarSearch } from "../utils/aStar";
-import { isValidCell } from "../utils/smartPathfinding";
+import {
+  isValidCell,
+  findSafePathWithTimeOffset,
+} from "../utils/smartPathfinding";
 
 export default function Home() {
   // === Đồng hồ thời gian thực ===
@@ -106,47 +109,92 @@ export default function Home() {
   };
 
   // Trong handleStartTogether()
+  // THAY TOÀN BỘ hàm handleStartTogether() trong Home.jsx bằng cái này:
   const handleStartTogether = () => {
-    if (v1.status === "moving" || v2.status === "moving") return;
+    if (v1.status === "moving" || v2.status === "moving") {
+      addLog("System", 0, "Đang có xe chạy rồi! Chờ chút nhé...");
+      return;
+    }
   
+    // BẬT CHẾ ĐỘ NÉ TUYỆT ĐỐI → Xe sẽ NHẢY Ô (không trượt, không cắt nhau)
+    window.isDualMode = true;
+    addLog("System", 0, "CHẾ ĐỘ NÉ TUYỆT ĐỐI KÍCH HOẠT → 2 XE SẼ NHẢY Ô – KHÔNG BAO GIỜ ĐỤNG NHAU!");
+  
+    // 1. Tính đường tối ưu cho V1 (luôn đi đường ngắn nhất)
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
-    if (!v1FullPath || v1FullPath.length < 2) return alert("V1 lỗi!");
+    if (!v1FullPath || v1FullPath.length < 2) {
+      alert("V1: Không tìm được đường!");
+      window.isDualMode = false;
+      return;
+    }
   
-    // Tạo đường cho V2: đi y hệt V1, nhưng CHÈN 2 BƯỚC "ĐI LỆCH + QUAY LẠI" ở bước đầu
-    const v2FullPath = [];
-    let detourAdded = false;
+    // Đặt trước toàn bộ ô mà V1 chiếm theo thời gian
+    const reservedByV1 = new Set();
+    v1FullPath.forEach((pos, t) => {
+      if (t > 0) reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
+    });
   
-    for (let i = 0; i < v1FullPath.length; i++) {
-      const current = v1FullPath[i];
+    // Kiểm tra trường hợp cực trị
+    const sameDest = v1.endPos[0] === v2.endPos[0] && v1.endPos[1] === v2.endPos[1];
   
-      // Chỉ chèn detour 1 lần duy nhất ở bước đầu tiên (khi rời điểm xuất phát)
-      if (i === 1 && !detourAdded) {
-        const [r, c] = current;
-        // Tìm 1 hướng ngang hợp lệ để lệch (trái hoặc phải)
-        const left = [r, c - 1];
-        const right = [r, c + 1];
-        const detourPos = isValidCell(left[0], left[1]) ? left : (isValidCell(right[0], right[1]) ? right : null);
+    let v2FullPath = [];
+    let offset = 0;
   
-        if (detourPos) {
-          v2FullPath.push(v1FullPath[0]);     // vẫn ở điểm xuất phát
-          v2FullPath.push(detourPos);         // BƯỚC 1: LỆCH SANG BÊN
-          v2FullPath.push(current);          // BƯỚC 2: QUAY LẠI ĐƯỜNG CHÍNH
-          detourAdded = true;
-          continue;
-        }
+    if (sameDest) {
+      // CÙNG ĐÍCH → ÉP V2 ĐI VÒNG CỘT 5, VỀ VÒNG CỘT 1 → NÉ HOÀN TOÀN
+      addLog("System", 0, "CẢ 2 XE CÙNG ĐÍCH → V2 TỰ ĐỘNG ĐI VÒNG CỘT 5 + VỀ CỘT 1 (ĐẸP NHƯ PHIM!)");
+  
+      const toDest = [
+        v2.startPos,
+        [1, 5], [2, 5], [3, 5], [4, 5], [5, 5],
+        [5, v2.endPos[1]],
+        v2.endPos
+      ].filter((p, i, arr) => i === 0 || p.toString() !== arr[i - 1].toString());
+  
+      const backHome = [
+        v2.endPos,
+        [5, 1], [4, 1], [3, 1], [2, 1], [1, 1],
+        v2.startPos
+      ].filter((p, i, arr) => i === 0 || p.toString() !== arr[i - 1].toString());
+  
+      v2FullPath = toDest.concat(backHome.slice(1));
+      offset = 3; // V2 xuất phát chậm hơn 3 bước
+    } else {
+      // Trường hợp bình thường: dùng AI tránh thời gian
+      let toDestPath = null;
+      for (offset = 0; offset <= 10; offset++) {
+        toDestPath = findSafePathWithTimeOffset(v2.startPos, v2.endPos, reservedByV1, offset);
+        if (toDestPath) break;
       }
-      v2FullPath.push(current);
+  
+      // Nếu vẫn kẹt → ép đi vòng cột 5
+      if (!toDestPath) {
+        addLog("System", 0, "V2 bị kẹt → tự động đi vòng xa cột 5!");
+        toDestPath = [
+          v2.startPos, [1,5], [2,5], [3,5], [4,5], [5,5],
+          [5, v2.endPos[1]], v2.endPos
+        ].filter((p, i, a) => i === 0 || p.toString() !== a[i-1].toString());
+        offset = 5;
+      }
+  
+      // Tính đường về an toàn
+      const returnStartTime = offset + toDestPath.length - 1;
+      let backPath = findSafePathWithTimeOffset(v2.endPos, v2.startPos, reservedByV1, returnStartTime);
+  
+      // Nếu về bị kẹt → ép về vòng cột 1
+      if (!backPath || backPath.length < 2) {
+        backPath = [v2.endPos, [5,1], [4,1], [3,1], [2,1], [1,1], v2.startPos]
+          .filter((p, i, a) => i === 0 || p.toString() !== a[i-1].toString());
+      }
+  
+      v2FullPath = toDestPath.concat(backPath.slice(1));
     }
   
-    // Nếu không lệch được → V2 delay 1 giây
-    if (!detourAdded) {
-      v2FullPath.splice(1, 0, v1FullPath[0]); // đứng yên 1 bước
-    }
-  
-    addLog("System", 0, "THẦN THÁNH! V2 đi vòng nhỏ 1 bước → nhìn đẹp, không đụng, chạy ngay!");
+    // LOG SIÊU NGẦU
     addLog("V1", v1.deliveries + 1, v1FullPath);
     addLog("V2", v2.deliveries + 1, v2FullPath);
   
+    // KHỞI ĐỘNG XE
     setV1({
       ...v1,
       pos: v1.startPos,
@@ -156,14 +204,24 @@ export default function Home() {
       deliveries: v1.deliveries + 1,
     });
   
-    setV2({
-      ...v2,
-      pos: v2.startPos,
-      path: v2FullPath.slice(1),
-      status: "moving",
-      tripLog: v2FullPath,
-      deliveries: v2.deliveries + 1,
-    });
+    // V2 xuất phát trễ offset bước
+    setTimeout(() => {
+      setV2({
+        ...v2,
+        pos: v2.startPos,
+        path: v2FullPath.slice(1),
+        status: "moving",
+        tripLog: v2FullPath,
+        deliveries: v2.deliveries + 1,
+      });
+  
+      // TẮT chế độ né tuyệt đối sau khi cả 2 xe về kho
+      const maxTime = Math.max(v1FullPath.length, v2FullPath.length + offset) * 800 + 4000;
+      setTimeout(() => {
+        window.isDualMode = false;
+        addLog("System", 0, "Chế độ né tuyệt đối đã tắt → xe chạy mượt trở lại!");
+      }, maxTime);
+    }, offset * 800);
   };
   const updateVehicle = (id, field, value) => {
     const setVehicle = id === "V1" ? setV1 : setV2;
