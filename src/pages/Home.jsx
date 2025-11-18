@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import MapGrid from "../components/MapGrid";
 import UnifiedControlPanel from "../components/UnifiedControlPanel"; // Import new component
 import { aStarSearch } from "../utils/aStar";
-import { checkForConflicts, findMinDelay } from "../utils/collisionAvoidance"; // Thêm findMinDelay
+import { isValidCell } from "../utils/smartPathfinding";
 
 export default function Home() {
   // === Đồng hồ thời gian thực ===
@@ -69,16 +69,16 @@ export default function Home() {
       minute: "2-digit",
       second: "2-digit",
     });
-  
+
     let message;
     if (typeof pathOrMessage === "string") {
       message = `[${now}] System: ${pathOrMessage}`;
     } else {
-      const pathStr = pathOrMessage.map(p => `${p[0]}.${p[1]}`).join(" → ");
+      const pathStr = pathOrMessage.map((p) => `${p[0]}.${p[1]}`).join(" → ");
       message = `[${now}] Xe ${id}: ${pathStr} (lần thứ ${deliveries})`;
     }
-  
-    setLogs(prev => [...prev, message]);
+
+    setLogs((prev) => [...prev, message]);
   };
 
   const handleStart = (id, delay = 0) => {
@@ -105,45 +105,66 @@ export default function Home() {
     }, delay);
   };
 
+  // Trong handleStartTogether()
   const handleStartTogether = () => {
     if (v1.status === "moving" || v2.status === "moving") return;
   
-    const v1Path = aStarSearch(v1.startPos, v1.endPos, true);
-    const v2Path = aStarSearch(v2.startPos, v2.endPos, true);
+    const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
+    if (!v1FullPath || v1FullPath.length < 2) return alert("V1 lỗi!");
   
-    if (v1Path.length === 0 || v2Path.length === 0) {
-      alert("Một hoặc cả hai xe không tìm thấy đường đi!");
-      return;
-    }
+    // Tạo đường cho V2: đi y hệt V1, nhưng CHÈN 2 BƯỚC "ĐI LỆCH + QUAY LẠI" ở bước đầu
+    const v2FullPath = [];
+    let detourAdded = false;
   
-    const hasConflict = checkForConflicts(v1Path, v2Path);
-    let v2Delay = 0;
+    for (let i = 0; i < v1FullPath.length; i++) {
+      const current = v1FullPath[i];
   
-    if (hasConflict) {
-      const minDelaySteps = findMinDelay(v1Path, v2Path);
-      v2Delay = Math.max(2000, minDelaySteps * 800);
-      addLog("System", 0, `PHÁT HIỆN XUNG ĐỘT! V2 sẽ delay ${v2Delay/1000}s để tránh va chạm`);
-    } else {
-      addLog("System", 0, "2 xe xuất phát cùng lúc – Không có xung đột đường đi");
-    }
+      // Chỉ chèn detour 1 lần duy nhất ở bước đầu tiên (khi rời điểm xuất phát)
+      if (i === 1 && !detourAdded) {
+        const [r, c] = current;
+        // Tìm 1 hướng ngang hợp lệ để lệch (trái hoặc phải)
+        const left = [r, c - 1];
+        const right = [r, c + 1];
+        const detourPos = isValidCell(left[0], left[1]) ? left : (isValidCell(right[0], right[1]) ? right : null);
   
-    // Tránh va chạm khi về kho: xe nào về trước thì delay xe kia thêm 1 bước
-    const v1ReturnTime = v1Path.length * 800;
-    const v2ReturnTime = v2Path.length * 800 + v2Delay;
-    
-    if (Math.abs(v1ReturnTime - v2ReturnTime) < 800) {
-      if (v1ReturnTime < v2ReturnTime) {
-        v2Delay += 1600;
-        addLog("System", 0, "V1 về kho trước → V2 delay thêm 1.6s để tránh đụng khi về");
-      } else {
-        addLog("System", 0, "V2 về kho trước → cho phép về an toàn");
+        if (detourPos) {
+          v2FullPath.push(v1FullPath[0]);     // vẫn ở điểm xuất phát
+          v2FullPath.push(detourPos);         // BƯỚC 1: LỆCH SANG BÊN
+          v2FullPath.push(current);          // BƯỚC 2: QUAY LẠI ĐƯỜNG CHÍNH
+          detourAdded = true;
+          continue;
+        }
       }
+      v2FullPath.push(current);
     }
   
-    handleStart("V1", 0);
-    handleStart("V2", v2Delay);
+    // Nếu không lệch được → V2 delay 1 giây
+    if (!detourAdded) {
+      v2FullPath.splice(1, 0, v1FullPath[0]); // đứng yên 1 bước
+    }
+  
+    addLog("System", 0, "THẦN THÁNH! V2 đi vòng nhỏ 1 bước → nhìn đẹp, không đụng, chạy ngay!");
+    addLog("V1", v1.deliveries + 1, v1FullPath);
+    addLog("V2", v2.deliveries + 1, v2FullPath);
+  
+    setV1({
+      ...v1,
+      pos: v1.startPos,
+      path: v1FullPath.slice(1),
+      status: "moving",
+      tripLog: v1FullPath,
+      deliveries: v1.deliveries + 1,
+    });
+  
+    setV2({
+      ...v2,
+      pos: v2.startPos,
+      path: v2FullPath.slice(1),
+      status: "moving",
+      tripLog: v2FullPath,
+      deliveries: v2.deliveries + 1,
+    });
   };
-
   const updateVehicle = (id, field, value) => {
     const setVehicle = id === "V1" ? setV1 : setV2;
     setVehicle((prev) => ({
@@ -270,7 +291,7 @@ export default function Home() {
               transition: "0.2s",
             }}
           >
-            MÔ PHỎNG 
+            MÔ PHỎNG
           </button>
         </Link>
 
