@@ -116,111 +116,92 @@ export default function Home() {
       return;
     }
   
-    // BẬT CHẾ ĐỘ NÉ TUYỆT ĐỐI → Xe sẽ NHẢY Ô (không trượt, không cắt nhau)
-    window.isDualMode = true;
-    addLog("System", 0, "CHẾ ĐỘ NÉ TUYỆT ĐỐI KÍCH HOẠT → 2 XE SẼ NHẢY Ô – KHÔNG BAO GIỜ ĐỤNG NHAU!");
+    addLog("System", 0, "HOÀN HẢO TUYỆT ĐỐI: V2 dừng ở 5.1 chờ V1 đến 5.3 → V2 đi tiếp → Cả 2 về an toàn!");
   
-    // 1. Tính đường tối ưu cho V1 (luôn đi đường ngắn nhất)
+    // BƯỚC 1: Lấy đường đi đầy đủ (đi + về) như chạy riêng
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
-    if (!v1FullPath || v1FullPath.length < 2) {
-      alert("V1: Không tìm được đường!");
-      window.isDualMode = false;
+    const v2FullPath = aStarSearch(v2.startPos, v2.endPos, true);
+  
+    if (!v1FullPath || !v2FullPath || v1FullPath.length < 4 || v2FullPath.length < 4) {
+      alert("Không tìm được đường!");
       return;
     }
   
-    // Đặt trước toàn bộ ô mà V1 chiếm theo thời gian
-    const reservedByV1 = new Set();
-    v1FullPath.forEach((pos, t) => {
-      if (t > 0) reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
-    });
+    // BƯỚC 2: Tìm thời điểm V1 đến đích (5.3)
+    const v1ArriveIdx = v1FullPath.findIndex(p => p[0] === v1.endPos[0] && p[1] === v1.endPos[1]);
+    if (v1ArriveIdx === -1) return alert("Lỗi V1");
   
-    // Kiểm tra trường hợp cực trị
-    const sameDest = v1.endPos[0] === v2.endPos[0] && v1.endPos[1] === v2.endPos[1];
+    // BƯỚC 3: Kiểm tra xem V2 có đi ngang dòng 5 và cắt qua đích của V1 không?
+    const v2EndCol = v2.endPos[1];
+    const v1EndCol = v1.endPos[1];
+    const v2GoesThroughBottomRow = v2FullPath.some(p => p[0] === 5);
+    const v2CrossesV1Dest = v2EndCol > v1EndCol; // V2 đi từ trái sang phải, cắt qua cột của V1
   
-    let v2FullPath = [];
-    let offset = 0;
+    let v1FinalPath = [...v1FullPath];
+    let v2FinalPath = [...v2FullPath];
+    let v2WaitAt51 = 0;
   
-    if (sameDest) {
-      // CÙNG ĐÍCH → ÉP V2 ĐI VÒNG CỘT 5, VỀ VÒNG CỘT 1 → NÉ HOÀN TOÀN
-      addLog("System", 0, "CẢ 2 XE CÙNG ĐÍCH → V2 TỰ ĐỘNG ĐI VÒNG CỘT 5 + VỀ CỘT 1 (ĐẸP NHƯ PHIM!)");
+    if (v2GoesThroughBottomRow && v2CrossesV1Dest && v1EndCol >= 2 && v1EndCol <= 4) {
+      // TRƯỜNG HỢP NGUY HIỂM: V2 đi ngang dòng 5 và cắt qua đích V1 (ví dụ 5.1 → 5.4, V1 đang ở 5.3)
+      addLog("System", 0, "PHÁT HIỆN NGUY HIỂM: V2 đi ngang cắt V1 → BẮT V2 DỪNG Ở 5.1 ĐỢI!");
   
-      const toDest = [
-        v2.startPos,
-        [1, 5], [2, 5], [3, 5], [4, 5], [5, 5],
-        [5, v2.endPos[1]],
-        v2.endPos
-      ].filter((p, i, arr) => i === 0 || p.toString() !== arr[i - 1].toString());
-  
-      const backHome = [
-        v2.endPos,
-        [5, 1], [4, 1], [3, 1], [2, 1], [1, 1],
-        v2.startPos
-      ].filter((p, i, arr) => i === 0 || p.toString() !== arr[i - 1].toString());
-  
-      v2FullPath = toDest.concat(backHome.slice(1));
-      offset = 3; // V2 xuất phát chậm hơn 3 bước
-    } else {
-      // Trường hợp bình thường: dùng AI tránh thời gian
-      let toDestPath = null;
-      for (offset = 0; offset <= 10; offset++) {
-        toDestPath = findSafePathWithTimeOffset(v2.startPos, v2.endPos, reservedByV1, offset);
-        if (toDestPath) break;
+      // Tìm thời điểm V2 đến ô 5.1
+      const v2At51Index = v2FullPath.findIndex(p => p[0] === 5 && p[1] === 1);
+      if (v2At51Index === -1) {
+        // Nếu không có 5.1 thì dừng ở ô đầu dòng 5
+        const firstBottom = v2FullPath.findIndex(p => p[0] === 5);
+        if (firstBottom !== -1) v2At51Index = firstBottom;
       }
   
-      // Nếu vẫn kẹt → ép đi vòng cột 5
-      if (!toDestPath) {
-        addLog("System", 0, "V2 bị kẹt → tự động đi vòng xa cột 5!");
-        toDestPath = [
-          v2.startPos, [1,5], [2,5], [3,5], [4,5], [5,5],
-          [5, v2.endPos[1]], v2.endPos
-        ].filter((p, i, a) => i === 0 || p.toString() !== a[i-1].toString());
-        offset = 5;
+      if (v2At51Index !== -1) {
+        // V2 phải DỪNG ở 5.1 cho đến khi V1 đến đích
+        v2WaitAt51 = Math.max(0, v1ArriveIdx - v2At51Index + 2); // +2 để chắc chắn V1 đã "đóng" 5.3
+  
+        const waitPos = v2FullPath[v2At51Index];
+        const waitingSegment = Array(v2WaitAt51).fill(waitPos);
+  
+        // Chèn đoạn chờ vào đúng vị trí
+        v2FinalPath = [
+          ...v2FullPath.slice(0, v2At51Index + 1),
+          ...waitingSegment,
+          ...v2FullPath.slice(v2At51Index + 1)
+        ];
+  
+        addLog("System", 0, `V2 dừng ${v2WaitAt51} bước tại ${formatPos(waitPos)} → nhường V1 đến ${formatPos(v1.endPos)} trước`);
       }
-  
-      // Tính đường về an toàn
-      const returnStartTime = offset + toDestPath.length - 1;
-      let backPath = findSafePathWithTimeOffset(v2.endPos, v2.startPos, reservedByV1, returnStartTime);
-  
-      // Nếu về bị kẹt → ép về vòng cột 1
-      if (!backPath || backPath.length < 2) {
-        backPath = [v2.endPos, [5,1], [4,1], [3,1], [2,1], [1,1], v2.startPos]
-          .filter((p, i, a) => i === 0 || p.toString() !== a[i-1].toString());
-      }
-  
-      v2FullPath = toDestPath.concat(backPath.slice(1));
     }
   
-    // LOG SIÊU NGẦU
-    addLog("V1", v1.deliveries + 1, v1FullPath);
-    addLog("V2", v2.deliveries + 1, v2FullPath);
+    // BƯỚC 4: Đồng bộ thời gian khởi động
+    const v1StartTime = v1ArriveIdx;
+    const v2EffectiveTime = v2FinalPath.findIndex(p => 
+      p[0] === v2.endPos[0] && p[1] === v2.endPos[1]
+    );
   
-    // KHỞI ĐỘNG XE
-    setV1({
-      ...v1,
+    const offset = Math.max(0, v1StartTime - (v2EffectiveTime - v2WaitAt51));
+  
+    // Log
+    addLog("V1", v1.deliveries + 1, v1FinalPath);
+    addLog("V2", v2.deliveries + 1, v2FinalPath);
+  
+    // KHỞI ĐỘNG
+    setV1(prev => ({
+      ...prev,
       pos: v1.startPos,
-      path: v1FullPath.slice(1),
+      path: v1FinalPath.slice(1),
       status: "moving",
-      tripLog: v1FullPath,
-      deliveries: v1.deliveries + 1,
-    });
+      tripLog: v1FinalPath,
+      deliveries: prev.deliveries + 1,
+    }));
   
-    // V2 xuất phát trễ offset bước
     setTimeout(() => {
-      setV2({
-        ...v2,
+      setV2(prev => ({
+        ...prev,
         pos: v2.startPos,
-        path: v2FullPath.slice(1),
+        path: v2FinalPath.slice(1),
         status: "moving",
-        tripLog: v2FullPath,
-        deliveries: v2.deliveries + 1,
-      });
-  
-      // TẮT chế độ né tuyệt đối sau khi cả 2 xe về kho
-      const maxTime = Math.max(v1FullPath.length, v2FullPath.length + offset) * 800 + 4000;
-      setTimeout(() => {
-        window.isDualMode = false;
-        addLog("System", 0, "Chế độ né tuyệt đối đã tắt → xe chạy mượt trở lại!");
-      }, maxTime);
+        tripLog: v2FinalPath,
+        deliveries: prev.deliveries + 1,
+      }));
     }, offset * 800);
   };
   const updateVehicle = (id, field, value) => {
