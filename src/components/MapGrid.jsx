@@ -7,22 +7,36 @@ export default function MapGrid({ v1, v2 }) {
     { text: "1.2", row: 1, line: 3 },
     { text: "1.3", row: 1, line: 4 },
     { text: "1.4", row: 1, line: 5 },
+    { text: "1.5", row: 1, line: 6 },      // change ở đây nha khánh
+
+
     { text: "2.1", row: 2, line: 2 },
     { text: "2.2", row: 2, line: 3 },
     { text: "2.3", row: 2, line: 4 },
     { text: "2.4", row: 2, line: 5 },
+    { text: "2.5", row: 2, line: 6 },
+
+
     { text: "3.1", row: 3, line: 2 },
     { text: "3.2", row: 3, line: 3 },
     { text: "3.3", row: 3, line: 4 },
     { text: "3.4", row: 3, line: 5 },
+    { text: "3.5", row: 3, line: 6 },      // change ở đây nha khánh
+
+
+
     { text: "4.1", row: 4, line: 2 },
     { text: "4.2", row: 4, line: 3 },
     { text: "4.3", row: 4, line: 4 },
     { text: "4.4", row: 4, line: 5 },
+    { text: "4.5", row: 4, line: 6 },     // change ở đây nha khánh
+
+
     { text: "5.1", row: 5, line: 2 },
     { text: "5.2", row: 5, line: 3 },
     { text: "5.3", row: 5, line: 4 },
     { text: "5.4", row: 5, line: 5 },
+    { text: "5.5", row: 5, line: 6 },     // change ở đây nha khánh
   ];
 
   return (
@@ -41,7 +55,7 @@ export default function MapGrid({ v1, v2 }) {
     >
       {/* Vẽ lưới ĐẦY ĐỦ 5x5 (5 LINE dọc x 5 LINE ngang) - đẹp và đồng bộ */}
       {Array.from({ length: 5 }, (_, i) =>
-        Array.from({ length: 5 }, (_, j) => (
+        Array.from({ length: 4 }, (_, j) => (    // change ở đây nha 
           <div
             key={`${i}-${j}`}
             style={{
