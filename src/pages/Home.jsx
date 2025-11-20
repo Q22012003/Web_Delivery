@@ -7,6 +7,7 @@ import { aStarSearch } from "../utils/aStar";
 import {
   isValidCell,
   findSafePathWithTimeOffset,
+  findSafePathFast,
 } from "../utils/smartPathfinding";
 
 export default function Home() {
@@ -40,6 +41,7 @@ export default function Home() {
     endPos: [5, 3],
     pos: [1, 1],
     path: [],
+    waitingAtEnd: false,
     status: "idle",
     deliveries: 0,
     tripLog: null,
@@ -52,12 +54,14 @@ export default function Home() {
     endPos: [5, 5],
     pos: [1, 1],
     path: [],
+    waitingAtEnd: false,
     status: "idle",
     deliveries: 0,
     tripLog: null,
   });
 
   const [logs, setLogs] = useState([]);
+  const [tick, setTick] = useState(0);
 
   const formatPos = (pos) => `${pos[0]}.${pos[1]}`;
   const getPathString = (path) => path.map(formatPos).join(" → ");
@@ -108,140 +112,129 @@ export default function Home() {
     }, delay);
   };
 
-  // Trong handleStartTogether()
-  // THAY TOÀN BỘ hàm handleStartTogether() trong Home.jsx bằng cái này:
-  const handleStartTogether = () => {
+  const handleStartTogetherSafe = () => {
     if (v1.status === "moving" || v2.status === "moving") {
-      addLog("System", 0, "Đang có xe chạy rồi! Chờ chút nhé...");
+      addLog("System", 0, "Xe đang chạy. Vui lòng chờ...");
       return;
     }
-  
-    addLog("System", 0, "HOÀN HẢO TUYỆT ĐỐI: V2 dừng ở 5.1 chờ V1 đến 5.3 → V2 đi tiếp → Cả 2 về an toàn!");
-  
-    // BƯỚC 1: Lấy đường đi đầy đủ (đi + về) như chạy riêng
+
+    // === B1: Tính đường khứ hồi đầy đủ cho V1 (đi + về) ===
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
-    const v2FullPath = aStarSearch(v2.startPos, v2.endPos, true);
-  
-    if (!v1FullPath || !v2FullPath || v1FullPath.length < 4 || v2FullPath.length < 4) {
-      alert("Không tìm được đường!");
-      return;
-    }
-  
-    // BƯỚC 2: Tìm thời điểm V1 đến đích (5.3)
-    const v1ArriveIdx = v1FullPath.findIndex(p => p[0] === v1.endPos[0] && p[1] === v1.endPos[1]);
-    if (v1ArriveIdx === -1) return alert("Lỗi V1");
-  
-    // BƯỚC 3: Kiểm tra xem V2 có đi ngang dòng 5 và cắt qua đích của V1 không?
-    const v2EndCol = v2.endPos[1];
-    const v1EndCol = v1.endPos[1];
-    const v2GoesThroughBottomRow = v2FullPath.some(p => p[0] === 5);
-    const v2CrossesV1Dest = v2EndCol > v1EndCol; // V2 đi từ trái sang phải, cắt qua cột của V1
-  
-    let v1FinalPath = [...v1FullPath];
-    let v2FinalPath = [...v2FullPath];
-    let v2WaitAt51 = 0;
-  
-    if (v2GoesThroughBottomRow && v2CrossesV1Dest && v1EndCol >= 2 && v1EndCol <= 4) {
-      // TRƯỜNG HỢP NGUY HIỂM: V2 đi ngang dòng 5 và cắt qua đích V1 (ví dụ 5.1 → 5.4, V1 đang ở 5.3)
-      addLog("System", 0, "PHÁT HIỆN NGUY HIỂM: V2 đi ngang cắt V1 → BẮT V2 DỪNG Ở 5.1 ĐỢI!");
-  
-      // Tìm thời điểm V2 đến ô 5.1
-      const v2At51Index = v2FullPath.findIndex(p => p[0] === 5 && p[1] === 1);
-      if (v2At51Index === -1) {
-        // Nếu không có 5.1 thì dừng ở ô đầu dòng 5
-        const firstBottom = v2FullPath.findIndex(p => p[0] === 5);
-        if (firstBottom !== -1) v2At51Index = firstBottom;
-      }
-  
-      if (v2At51Index !== -1) {
-        // V2 phải DỪNG ở 5.1 cho đến khi V1 đến đích
-        v2WaitAt51 = Math.max(0, v1ArriveIdx - v2At51Index + 2); // +2 để chắc chắn V1 đã "đóng" 5.3
-  
-        const waitPos = v2FullPath[v2At51Index];
-        const waitingSegment = Array(v2WaitAt51).fill(waitPos);
-  
-        // Chèn đoạn chờ vào đúng vị trí
-        v2FinalPath = [
-          ...v2FullPath.slice(0, v2At51Index + 1),
-          ...waitingSegment,
-          ...v2FullPath.slice(v2At51Index + 1)
-        ];
-  
-        addLog("System", 0, `V2 dừng ${v2WaitAt51} bước tại ${formatPos(waitPos)} → nhường V1 đến ${formatPos(v1.endPos)} trước`);
-      }
-    }
-  
-    // BƯỚC 4: Đồng bộ thời gian khởi động
-    const v1StartTime = v1ArriveIdx;
-    const v2EffectiveTime = v2FinalPath.findIndex(p => 
-      p[0] === v2.endPos[0] && p[1] === v2.endPos[1]
+    if (!v1FullPath.length) return alert("V1: Không tìm được đường!");
+
+    // Đánh dấu tất cả ô mà V1 sẽ chiếm theo thời gian (t=0 là start, t=1 trở đi mới tính)
+    const reservedTimes = new Set();
+    v1FullPath.forEach((pos, t) => {
+      if (t > 0) reservedTimes.add(`${pos[0]},${pos[1]}@${t}`);
+    });
+
+    // === B2: V2 sẽ xuất phát SAU V1 đúng 2.5 bước (~2 giây) → delay 2 tick + 1 để an toàn tuyệt đối ===
+    const v2TimeOffset = 3; // 3 bước = 2.4s → cực kỳ an toàn
+
+    // Tính đường khứ hồi cho V2 với timeOffset (tránh hoàn toàn V1)
+    const v2To = findSafePathWithTimeOffset(
+      v2.startPos,
+      v2.endPos,
+      reservedTimes,
+      v2TimeOffset
     );
-  
-    const offset = Math.max(0, v1StartTime - (v2EffectiveTime - v2WaitAt51));
-  
-    // Log
-    addLog("V1", v1.deliveries + 1, v1FinalPath);
-    addLog("V2", v2.deliveries + 1, v2FinalPath);
-  
-    // KHỞI ĐỘNG
-    setV1(prev => ({
+    if (!v2To) return alert("V2: Không tìm được đường đi an toàn!");
+
+    // Cập nhật reserved với đường đi của V2 (để đường về không tự đụng mình)
+    const v2Reserved = new Set(reservedTimes);
+    v2To.forEach((pos, t) => {
+      if (t > 0) v2Reserved.add(`${pos[0]},${pos[1]}@${t + v2TimeOffset}`);
+    });
+
+    // Tính đường về (với thời gian bắt đầu từ khi V2 đến đích)
+    const v2BackStartTime = v2TimeOffset + v2To.length - 1;
+    const v2Back = findSafePathWithTimeOffset(
+      v2.endPos,
+      v2.startPos,
+      v2Reserved,
+      v2BackStartTime
+    );
+    if (!v2Back) return alert("V2: Không thể về an toàn!");
+
+    const v2FullPath = [...v2To, ...v2Back.slice(1)];
+
+    // === LOG ĐẸP ===
+    addLog("V1", v1.deliveries + 1, v1FullPath);
+    addLog("V2", v2.deliveries + 1, v2FullPath);
+
+    // === CẬP NHẬT STATE – 2 XE XUẤT PHÁT CÙNG LÚC (nhưng V2 được delay trong path) ===
+    setV1((prev) => ({
       ...prev,
+      path: v1FullPath.slice(1),
       pos: v1.startPos,
-      path: v1FinalPath.slice(1),
       status: "moving",
-      tripLog: v1FinalPath,
       deliveries: prev.deliveries + 1,
+      tripLog: v1FullPath,
     }));
-  
-    setTimeout(() => {
-      setV2(prev => ({
-        ...prev,
-        pos: v2.startPos,
-        path: v2FinalPath.slice(1),
-        status: "moving",
-        tripLog: v2FinalPath,
-        deliveries: prev.deliveries + 1,
-      }));
-    }, offset * 800);
+
+    setV2((prev) => ({
+      ...prev,
+      path: v2FullPath.slice(1),
+      pos: v2.startPos,
+      status: "moving",
+      deliveries: prev.deliveries + 1,
+      tripLog: v2FullPath,
+    }));
+
+    setTick(0); // Bắt đầu đồng hồ
   };
+
+  // Thay hàm updateVehicle trong Home.jsx bằng cái này:
   const updateVehicle = (id, field, value) => {
     const setVehicle = id === "V1" ? setV1 : setV2;
-    setVehicle((prev) => ({
-      ...prev,
-      [field]: value,
-      ...(field === "startPos" && prev.status === "idle" ? { pos: value } : {}),
-    }));
+    setVehicle((prev) => {
+      const updates = { ...prev, [field]: value };
+
+      // CẬP NHẬT pos NGAY LẬP TỨC nếu là startPos HOẶC endPos
+      if (field === "startPos") {
+        updates.pos = value;
+      }
+      if (field === "endPos" && prev.status !== "moving") {
+        updates.pos = prev.startPos; // giữ nguyên nếu đang di chuyển
+      }
+
+      // Reset path nếu đang idle hoặc waiting_at_end
+      if (prev.status !== "moving") {
+        updates.path = [];
+        updates.status = "idle";
+        updates.tripLog = null;
+      }
+
+      return updates;
+    });
   };
 
   // === Di chuyển xe mỗi 800ms ===
+
   useEffect(() => {
-    const interval = setInterval(() => {
-      [v1, v2].forEach((vehicle, i) => {
-        const setVehicle = i === 0 ? setV1 : setV2;
-
-        setVehicle((prev) => {
-          if (prev.status !== "moving" || prev.path.length === 0) {
-            if (prev.tripLog && prev.pos[0] === 1 && prev.pos[1] === 1) {
-              addLog(prev.id, prev.deliveries, prev.tripLog);
-            }
-            return { ...prev, status: "idle", tripLog: null };
-          }
-
-          const nextPos = prev.path[0];
-          const remainingPath = prev.path.slice(1);
-
-          return {
-            ...prev,
-            pos: nextPos,
-            path: remainingPath,
-            status: remainingPath.length > 0 ? "moving" : "idle",
-          };
-        });
-      });
-    }, 800);
-
+    const interval = setInterval(() => setTick((prev) => prev + 1), 800);
     return () => clearInterval(interval);
-  }, [v1, v2]);
+  }, []);
+
+  useEffect(() => {
+    // Di chuyển V1
+    setV1((prev) => {
+      if (prev.path.length === 0) return prev;
+      const nextPos = prev.path[0];
+      const newPath = prev.path.slice(1);
+      const status = newPath.length === 0 ? "waiting_at_end" : "moving";
+      return { ...prev, pos: nextPos, path: newPath, status };
+    });
+
+    // Di chuyển V2
+    setV2((prev) => {
+      if (prev.path.length === 0) return prev;
+      const nextPos = prev.path[0];
+      const newPath = prev.path.slice(1);
+      const status = newPath.length === 0 ? "waiting_at_end" : "moving";
+      return { ...prev, pos: nextPos, path: newPath, status };
+    });
+  }, [tick]);
 
   return (
     <div
@@ -298,7 +291,7 @@ export default function Home() {
           v2={v2}
           onChange={updateVehicle}
           onStart={handleStart}
-          onStartTogether={handleStartTogether}
+          onStartTogether={handleStartTogetherSafe}
         />
       </div>
 

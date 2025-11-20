@@ -1,29 +1,57 @@
 // src/components/Vehicle.jsx
 import CarIcon from "./CarIcon";
 
-export default function Vehicle({ id, pos, nextPos, status, index = 0 }) {
-  const [row, col] = pos || [1, 1];
+export default function Vehicle({ id, pos, status, index = 0 }) {
+  if (!pos) return null;
+  const [row, col] = pos;
 
-  // BẬT CHẾ ĐỘ NÉ TUYỆT ĐỐI KHI CHẠY CÙNG LÚC (do Home.jsx set)
-  const isDualMode = window.isDualMode === true;
-
-  // Tắt hoàn toàn transition khi chạy cùng
-  const transition = isDualMode
-    ? "none !important"
-    : "all 0.8s cubic-bezier(0.32, 0, 0.67, 0)";
-
-  // Tính vị trí chính xác
+  // Tính vị trí gốc (center của cell)
   let x = (col - 1) * 20 + 10;
-  let y = row === 1 ? 96 : (5 - row) * 20 + 10;
+  let y = (5 - row) * 20 + 10;
 
-  // Dòng 1: lệch nhẹ để 2 xe không chồng nhau
-  if (row === 1) {
-    if (col === 1) {
-      x = index === 0 ? 6 : 14;
-    } else {
-      x = (col - 1) * 20 + 10 + (index === 0 ? -2 : 2);
-    }
+  // ===== ÉP SÁT THEO LINE CHUẨN =====
+
+  // SÁT TRÁI CHO CỘT 1
+  if (col === 1) {
+    x = (col - 1) * 20 + 3.8; // 6.8% từ mép → sát line trái
   }
+
+  if (col === 2) x = (col - 1) * 20 + 4; // lùi 1 tí giống 1.1
+  if (col === 3) x = (col - 1) * 20 + 4;
+  if (col === 4) x = (col - 1) * 20 + 4;
+
+  // SÁT LINE TRÁI CỦA CỘT 5
+  if (col === 5) {
+    x = (col - 1) * 20 + 4; // 13.2% từ mép trái của group cột 5
+  }
+
+  // ===== HẠ TRỌNG TÂM THEO ROW =====
+
+  // SÁT LINE DƯỚI (row 1)
+  if (row === 1) {
+    y = 94.8; // sát line dưới
+  }
+
+  // SÁT LINE TRÊN (row 5)
+  if (row === 5) {
+    y = (5 - 5) * 20 + 15.2; // sát line trên
+  }
+
+  // HÀNG 2–4: hạ nhẹ cho bánh chạm line
+  if (row >= 2 && row <= 4) {
+    y += 2.2;
+  }
+
+  // ===== CASE ĐẶC BIỆT CHO 1.1 (CHỒNG XE ĐẸP) =====
+  if (row === 1 && col === 1) {
+    y = 94.8;
+
+    if (index === 0) x = 3.8; // V1 sát line trái
+    if (index === 1) x = 10.5; // V2 chồng sau vừa đẹp
+  }
+
+  // 5. Hạ trọng tâm toàn bộ xe xuống thêm tí nữa cho bánh CHẠM ĐẤT
+  y += 2.8; // ← CÁI NÀY LÀ CHÌA KHÓA VÀNG: hạ xe xuống để bánh chạm line
 
   const color = id === "V1" ? "#ff4444" : "#00C853";
 
@@ -33,15 +61,11 @@ export default function Vehicle({ id, pos, nextPos, status, index = 0 }) {
         position: "absolute",
         left: `${x}%`,
         top: `${y}%`,
-        width: "12%",
-        transform:
-          row === 1 ? "translate(-50%, -33%)" : "translate(-50%, -50%)",
-        transition, // Ở đây tắt mượt khi chạy cùng
-        zIndex: row === 1 ? (index === 0 ? 15 : 20) : 10,
+        width: "11.5%",
+        transform: "translate(-50%, -50%)",
+        transition: "all 0.8s cubic-bezier(0.32, 0, 0.67, 0)",
+        zIndex: row === 1 ? 50 : row === 5 ? 48 : 30,
         pointerEvents: "none",
-        // Thêm !important để chắc chắn override
-        transitionProperty: isDualMode ? "none" : "all",
-        transitionDuration: isDualMode ? "0s" : "0.8s",
       }}
     >
       <CarIcon color={status === "moving" ? color : "#666666"} />
@@ -49,18 +73,18 @@ export default function Vehicle({ id, pos, nextPos, status, index = 0 }) {
       <div
         style={{
           position: "absolute",
-          top: "110%",
+          top: "140%",
           left: "50%",
           transform: "translateX(-50%)",
-          background: "rgba(0,0,0,0.92)",
+          background: "rgba(0,0,0,0.95)",
           color: "#fff",
           fontWeight: "bold",
-          fontSize: "1vw",
-          padding: "3px 8px",
-          borderRadius: "8px",
-          border: `2px solid ${color}`,
+          fontSize: "0.95vw",
+          padding: "4px 10px",
+          borderRadius: "9px",
+          border: `2.5px solid ${color}`,
           whiteSpace: "nowrap",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.7)",
+          boxShadow: "0 6px 16px rgba(0,0,0,0.8)",
         }}
       >
         {id}
