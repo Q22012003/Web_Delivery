@@ -7,13 +7,12 @@ export default function UnifiedControlPanel({
   onStartTogether,
 }) {
   const startPoints = [
-  
-  [1, 1],
-  [1, 2],
-  [1, 3],
-  [1, 4],
-  [1, 5],
-];
+    [1, 1],
+    [1, 2],
+    [1, 3],
+    [1, 4],
+    [1, 5],
+  ];
   const endPoints = [
     [5, 1],
     [5, 2],

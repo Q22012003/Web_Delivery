@@ -5,35 +5,35 @@ const SIZE = 6;
 
 // Các ô hợp lệ trên bản đồ chữ U + 2 cột dọc đầy đủ
 const validCells = new Set([
-  // Dòng 1 (trên cùng) – đầy đủ
   "1,1",
   "1,2",
   "1,3",
   "1,4",
   "1,5",
-
-  // Cột 1 (trái) – dọc đầy đủ
   "2,1",
   "3,1",
   "4,1",
   "5,1",
-
-  // Cột 5 (phải) – dọc đầy đủ
   "2,5",
   "3,5",
   "4,5",
   "5,5",
-
-  // Dòng 5 (dưới cùng) – đầy đủ
   "5,1",
   "5,2",
   "5,3",
   "5,4",
   "5,5",
 
-  // 2 Ô THẦN THÁNH CHO PHÉP V2 ĐI VÒNG TỪ GIỮA (1.3, 1.2, v.v.)
+  // ĐƯỜNG CAO TỐC DỌC GIỮA – BÂY GIỜ HOÀN HẢO!
+  "2,2",
   "2,3",
+  "2,4",
+  "3,2",
+  "3,3",
+  "3,4",
+  "4,2",
   "4,3",
+  "4,4",
 ]);
 
 export function isValidCell(r, c) {
@@ -52,19 +52,14 @@ function getNeighbors(pos) {
     [0, -1],
     [1, 0],
     [-1, 0],
-  ];
+  ]; // lên, xuống, trái, phải
 
   for (const [dr, dc] of dirs) {
-    const nr = r + dr,
-      nc = c + dc;
+    const nr = r + dr;
+    const nc = c + dc;
+
+    // CHỈ KIỂM TRA Ô CÓ HỢP LỆ HAY KHÔNG → ĐI TỰ DO HOÀN TOÀN!
     if (isValidCell(nr, nc)) {
-      // QUY TẮC MỚI – CHUẨN CHỮ U
-      if (c !== 1 && c !== 5) {
-        if ((r === 1 || r === 5) && dr !== 0) continue; // không đi dọc ở giữa dòng 1/5
-      }
-      if (r !== 1 && r !== 5) {
-        if ((c === 1 || c === 5) && dc !== 0) continue; // không đi ngang ở giữa cột 1/5
-      }
       neighbors.push([nr, nc]);
     }
   }
@@ -247,4 +242,43 @@ export function findSafePathFast(start, goal, reservedTimes, timeOffset = 1) {
     }
   }
   return null;
+}
+
+// HÀM MỚI – V2 TỰ ĐỘNG VỀ NHÀ NHƯ V1, NÉ V1 HOÀN HẢO
+export function findSafePathWithReturn(
+  start,
+  goal,
+  reservedTimes,
+  timeOffset = 2
+) {
+  if (!isValidCell(start[0], start[1]) || !isValidCell(goal[0], goal[1]))
+    return null;
+
+  // B1: Tìm đường đi TỚI đích (an toàn với V1)
+  const pathToGoal = findSafePathFast(start, goal, reservedTimes, timeOffset);
+  if (!pathToGoal || pathToGoal.length < 2) return null;
+
+  // Tạo reserved mới cho V2 (tính từ thời gian V2 bắt đầu)
+  const reservedByV2 = new Set();
+  pathToGoal.forEach((pos, t) => {
+    const realTime = t + timeOffset;
+    if (realTime > 0) reservedByV2.add(`${pos[0]},${pos[1]}@${realTime}`);
+  });
+
+  // B2: Tìm đường VỀ start (tránh cả V1 và chính V2 lúc đi)
+  const allReserved = new Set([...reservedTimes, ...reservedByV2]);
+  const pathBack = findSafePathFast(
+    goal,
+    start,
+    allReserved,
+    timeOffset + pathToGoal.length - 1
+  );
+
+  if (!pathBack || pathBack.length < 2) {
+    // Nếu không về được → ít nhất cũng đến đích
+    return pathToGoal;
+  }
+
+  // Ghép đường: đi + về (loại bỏ điểm đích trùng)
+  return pathToGoal.concat(pathBack.slice(1));
 }

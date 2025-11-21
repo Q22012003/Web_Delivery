@@ -1,11 +1,34 @@
 // src/utils/aStar.js – PHIÊN BẢN HOÀN HẢO, ĐỒNG BỘ VỚI smartPathfinding.js
 const validCells = new Set([
-  "1,1", "1,2", "1,3", "1,4", "1,5",
-  "2,1", "3,1", "4,1", "5,1",
-  "2,5", "3,5", "4,5", "5,5",
-  "5,1", "5,2", "5,3", "5,4", "5,5",
-  "2,3",  // THẦN THÁNH
-  "4,3"   // THẦN THÁNH
+  "1,1",
+  "1,2",
+  "1,3",
+  "1,4",
+  "1,5",
+  "2,1",
+  "3,1",
+  "4,1",
+  "5,1",
+  "2,5",
+  "3,5",
+  "4,5",
+  "5,5",
+  "5,1",
+  "5,2",
+  "5,3",
+  "5,4",
+  "5,5",
+
+  // ĐƯỜNG CAO TỐC DỌC GIỮA – BÂY GIỜ HOÀN HẢO!
+  "2,2",
+  "2,3",
+  "2,4",
+  "3,2",
+  "3,3",
+  "3,4",
+  "4,2",
+  "4,3",
+  "4,4",
 ]);
 
 export function isValidCell(r, c) {
@@ -19,18 +42,19 @@ function heuristic(a, b) {
 function getNeighbors(pos) {
   const [r, c] = pos;
   const neighbors = [];
-  const dirs = [[0,1],[0,-1],[1,0],[-1,0]];
+  const dirs = [
+    [0, 1],
+    [0, -1],
+    [1, 0],
+    [-1, 0],
+  ]; // lên, xuống, trái, phải
 
   for (const [dr, dc] of dirs) {
-    const nr = r + dr, nc = c + dc;
+    const nr = r + dr;
+    const nc = c + dc;
+
+    // CHỈ KIỂM TRA Ô CÓ HỢP LỆ HAY KHÔNG → ĐI TỰ DO HOÀN TOÀN!
     if (isValidCell(nr, nc)) {
-      // QUY TẮC CHUẨN CHỮ U – CHO PHÉP ĐI XUỐNG TỪ DÒNG 1 Ở GIỮA
-      if (c !== 1 && c !== 5) {
-        if ((r === 1 || r === 5) && dr !== 0) continue;
-      }
-      if (r !== 1 && r !== 5) {
-        if ((c === 1 || c === 5) && dc !== 0) continue;
-      }
       neighbors.push([nr, nc]);
     }
   }
@@ -46,7 +70,7 @@ export function aStarSearch(start, goal, returnToStart = true) {
   const cameFrom = new Map();
   const gScore = new Map();
   const fScore = new Map();
-  const key = pos => `${pos[0]},${pos[1]}`;
+  const key = (pos) => `${pos[0]},${pos[1]}`;
 
   gScore.set(key(start), 0);
   fScore.set(key(start), heuristic(start, goal));
@@ -83,7 +107,7 @@ export function aStarSearch(start, goal, returnToStart = true) {
         gScore.set(nKey, tentativeG);
         fScore.set(nKey, tentativeG + heuristic(neighbor, goal));
 
-        if (!openSet.some(n => key(n.pos) === nKey)) {
+        if (!openSet.some((n) => key(n.pos) === nKey)) {
           openSet.push({ pos: neighbor, f: fScore.get(nKey) });
         }
       }

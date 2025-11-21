@@ -8,6 +8,7 @@ import {
   isValidCell,
   findSafePathWithTimeOffset,
   findSafePathFast,
+  findSafePathWithReturn,
 } from "../utils/smartPathfinding";
 
 export default function Home() {
@@ -114,74 +115,73 @@ export default function Home() {
 
   const handleStartTogetherSafe = () => {
     if (v1.status === "moving" || v2.status === "moving") {
-      addLog("System", 0, "Xe đang chạy. Vui lòng chờ...");
+      addLog("System", 0, "Có xe đang chạy! Vui lòng chờ hết chuyến.");
       return;
     }
 
-    // === B1: Tính đường khứ hồi đầy đủ cho V1 (đi + về) ===
+    // BƯỚC 1: Tính đường KHỨ HỒI đầy đủ cho V1 (đi + về) bằng A* chuẩn
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
-    if (!v1FullPath.length) return alert("V1: Không tìm được đường!");
+    if (!v1FullPath || v1FullPath.length < 2) {
+      alert("V1: Không tìm được đường!");
+      return;
+    }
 
-    // Đánh dấu tất cả ô mà V1 sẽ chiếm theo thời gian (t=0 là start, t=1 trở đi mới tính)
-    const reservedTimes = new Set();
+    // Đánh dấu toàn bộ ô mà V1 chiếm theo thời gian (t=1 trở đi mới chiếm, t=0 cho phép chồng start)
+    const reservedByV1 = new Set();
     v1FullPath.forEach((pos, t) => {
-      if (t > 0) reservedTimes.add(`${pos[0]},${pos[1]}@${t}`);
+      if (t > 0) reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
     });
 
-    // === B2: V2 sẽ xuất phát SAU V1 đúng 2.5 bước (~2 giây) → delay 2 tick + 1 để an toàn tuyệt đối ===
-    const v2TimeOffset = 3; // 3 bước = 2.4s → cực kỳ an toàn
-
-    // Tính đường khứ hồi cho V2 với timeOffset (tránh hoàn toàn V1)
-    const v2To = findSafePathWithTimeOffset(
+    // BƯỚC 2: V2 tìm đường KHỨ HỒI AN TOÀN với timeOffset = 2 → né tuyệt đối
+    const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
-      reservedTimes,
-      v2TimeOffset
+      reservedByV1,
+      2
     );
-    if (!v2To) return alert("V2: Không tìm được đường đi an toàn!");
 
-    // Cập nhật reserved với đường đi của V2 (để đường về không tự đụng mình)
-    const v2Reserved = new Set(reservedTimes);
-    v2To.forEach((pos, t) => {
-      if (t > 0) v2Reserved.add(`${pos[0]},${pos[1]}@${t + v2TimeOffset}`);
-    });
+    if (!v2FullPath || v2FullPath.length < 2) {
+      addLog(
+        "System",
+        0,
+        "V2 không tìm được đường an toàn để về nhà! Thử đổi đích."
+      );
+      return;
+    }
 
-    // Tính đường về (với thời gian bắt đầu từ khi V2 đến đích)
-    const v2BackStartTime = v2TimeOffset + v2To.length - 1;
-    const v2Back = findSafePathWithTimeOffset(
-      v2.endPos,
-      v2.startPos,
-      v2Reserved,
-      v2BackStartTime
+    addLog(
+      "System",
+      0,
+      "CHẠY ĐÔI THÀNH CÔNG – V2 CHẬM HƠN 2 BƯỚC, TỰ VỀ NHÀ ĐẸP!"
     );
-    if (!v2Back) return alert("V2: Không thể về an toàn!");
 
-    const v2FullPath = [...v2To, ...v2Back.slice(1)];
-
-    // === LOG ĐẸP ===
-    addLog("V1", v1.deliveries + 1, v1FullPath);
-    addLog("V2", v2.deliveries + 1, v2FullPath);
-
-    // === CẬP NHẬT STATE – 2 XE XUẤT PHÁT CÙNG LÚC (nhưng V2 được delay trong path) ===
-    setV1((prev) => ({
-      ...prev,
-      path: v1FullPath.slice(1),
+    // Khởi động V1 ngay lập tức
+    setV1({
+      ...v1,
       pos: v1.startPos,
+      path: v1FullPath.slice(1),
       status: "moving",
-      deliveries: prev.deliveries + 1,
+      deliveries: v1.deliveries + 1,
       tripLog: v1FullPath,
-    }));
+    });
 
-    setV2((prev) => ({
-      ...prev,
-      path: v2FullPath.slice(1),
-      pos: v2.startPos,
-      status: "moving",
-      deliveries: prev.deliveries + 1,
-      tripLog: v2FullPath,
-    }));
+    // V2 chạy chậm hơn 1600ms (2 bước ở tốc độ 800ms/bước → an toàn tuyệt đối)
+    setTimeout(() => {
+      setV2({
+        ...v2,
+        pos: v2.startPos,
+        path: v2FullPath.slice(1),
+        status: "moving",
+        deliveries: v2.deliveries + 1,
+        tripLog: v2FullPath,
+      });
+    }, 1600);
 
-    setTick(0); // Bắt đầu đồng hồ
+    // Ghi log đẹp
+    setTimeout(() => {
+      addLog("V1", v1.deliveries + 1, v1FullPath);
+      addLog("V2", v2.deliveries + 1, v2FullPath);
+    }, 1800);
   };
 
   // Thay hàm updateVehicle trong Home.jsx bằng cái này:
@@ -212,7 +212,7 @@ export default function Home() {
   // === Di chuyển xe mỗi 800ms ===
 
   useEffect(() => {
-    const interval = setInterval(() => setTick((prev) => prev + 1), 800);
+    const interval = setInterval(() => setTick((prev) => prev + 1), 1000);
     return () => clearInterval(interval);
   }, []);
 

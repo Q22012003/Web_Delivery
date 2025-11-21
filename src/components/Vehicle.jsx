@@ -39,7 +39,8 @@ export default function Vehicle({ id, pos, status, index = 0 }) {
 
   // HÀNG 2–4: hạ nhẹ cho bánh chạm line
   if (row >= 2 && row <= 4) {
-    y += 2.2;
+    const rowOffsets = { 2: 6.5, 3: 4.5, 4: 4.3 }; // tăng offset để xe sát line hơn
+    y += rowOffsets[row] || 0;
   }
 
   // ===== CASE ĐẶC BIỆT CHO 1.1 (CHỒNG XE ĐẸP) =====
