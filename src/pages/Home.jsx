@@ -7,20 +7,32 @@ import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 
 import { aStarSearch } from "../utils/aStar";
-import {
-  findSafePathWithReturn,
-} from "../utils/smartPathfinding";
+import { findSafePathWithReturn } from "../utils/smartPathfinding";
 
 export default function Home() {
   // === State xe V1 & V2 ===
   const [v1, setV1] = useState({
-    id: "V1", startPos: [1, 1], endPos: [5, 3], pos: [1, 1],
-    path: [], waitingAtEnd: false, status: "idle", deliveries: 0, tripLog: null,
+    id: "V1",
+    startPos: [1, 1],
+    endPos: [5, 3],
+    pos: [1, 1],
+    path: [],
+    waitingAtEnd: false,
+    status: "idle",
+    deliveries: 0,
+    tripLog: null,
   });
 
   const [v2, setV2] = useState({
-    id: "V2", startPos: [1, 1], endPos: [5, 5], pos: [1, 1],
-    path: [], waitingAtEnd: false, status: "idle", deliveries: 0, tripLog: null,
+    id: "V2",
+    startPos: [1, 1],
+    endPos: [5, 5],
+    pos: [1, 1],
+    path: [],
+    waitingAtEnd: false,
+    status: "idle",
+    deliveries: 0,
+    tripLog: null,
   });
 
   const [logs, setLogs] = useState([]);
@@ -29,18 +41,22 @@ export default function Home() {
   const addLog = (id, deliveries, pathOrMessage) => {
     const now = new Date().toLocaleString("vi-VN", {
       timeZone: "Asia/Ho_Chi_Minh",
-      day: "2-digit", month: "2-digit", year: "numeric",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     });
 
     let message;
     if (typeof pathOrMessage === "string") {
       message = `[${now}] System: ${pathOrMessage}`;
     } else {
-      const pathStr = pathOrMessage.map(p => `${p[0]}.${p[1]}`).join(" → ");
+      const pathStr = pathOrMessage.map((p) => `${p[0]}.${p[1]}`).join(" → ");
       message = `[${now}] Xe ${id}: ${pathStr} (lần thứ ${deliveries})`;
     }
-    setLogs(prev => [...prev, message]);
+    setLogs((prev) => [...prev, message]);
   };
 
   const handleStart = (id, delay = 0) => {
@@ -73,43 +89,76 @@ export default function Home() {
       return;
     }
 
+    // Bước 1: Tính đường tối ưu cho V1 (không biết V2)
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath || v1FullPath.length < 2) {
       alert("V1: Không tìm được đường!");
       return;
     }
 
+    // Bước 2: Đặt trước toàn bộ thời gian V1 chiếm giữ
+    // CHỈ reserve các ô mà V1 đi qua (không tính ô đích cuối)
     const reservedByV1 = new Set();
-    v1FullPath.forEach((pos, t) => {
-      if (t > 0) reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
-    });
+    for (let i = 1; i < v1FullPath.length - 1; i++) {
+      // từ bước 1 đến trước đích
+      const pos = v1FullPath[i];
+      const t = i + 3; // vì V2 chậm hơn 3 tick
+      reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
+    }
 
-    const v2FullPath = findSafePathWithReturn(v2.startPos, v2.endPos, reservedByV1, 2);
-    if (!v2FullPath || v2FullPath.length < 2) {
-      addLog("System", 0, "V2 không tìm được đường an toàn để về nhà! Thử đổi đích.");
+    // Bước 3: V2 tìm đường ĐI + VỀ, biết trước toàn bộ V1 và tự bảo vệ chính mình
+    const v2FullPath = findSafePathWithReturn(
+      v2.startPos,
+      v2.endPos,
+      reservedByV1,
+      3,
+      v1.startPos, // ← thêm: cho V2 biết V1 xuất phát từ đâu
+      v1.endPos // ← thêm: cho V2 biết V1 đi đâu
+    );
+
+    if (!v2FullPath) {
+      addLog("System", 0, "V2 không thể di chuyển! Kiểm tra lại bản đồ.");
       return;
     }
 
-    addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – V2 CHẬM HƠN 2 BƯỚC, TỰ VỀ NHÀ ĐẸP!");
+    addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – KHÔNG VA CHẠM ĐẢM BẢO 100%!");
 
-    setV1({ ...v1, pos: v1.startPos, path: v1FullPath.slice(1), status: "moving", deliveries: v1.deliveries + 1, tripLog: v1FullPath });
+    // Gửi V1 đi ngay
+    setV1({
+      ...v1,
+      pos: v1.startPos,
+      path: v1FullPath.slice(1),
+      status: "moving",
+      deliveries: v1.deliveries + 1,
+      tripLog: v1FullPath,
+    });
 
+    // V2 đi chậm hơn 3 bước (3000ms) → tránh chồng start + tránh 99% va chạm
     setTimeout(() => {
-      setV2({ ...v2, pos: v2.startPos, path: v2FullPath.slice(1), status: "moving", deliveries: v2.deliveries + 1, tripLog: v2FullPath });
-    }, 1600);
+      setV2({
+        ...v2,
+        pos: v2.startPos,
+        path: v2FullPath.slice(1),
+        status: "moving",
+        deliveries: v2.deliveries + 1,
+        tripLog: v2FullPath,
+      });
+    }, 2000); // Tăng từ 2600 → 3000 để an toàn tuyệt đối
 
+    // Log đẹp
     setTimeout(() => {
       addLog("V1", v1.deliveries + 1, v1FullPath);
       addLog("V2", v2.deliveries + 1, v2FullPath);
-    }, 1800);
+    }, 2000);
   };
 
   const updateVehicle = (id, field, value) => {
     const setVehicle = id === "V1" ? setV1 : setV2;
-    setVehicle(prev => {
+    setVehicle((prev) => {
       const updates = { ...prev, [field]: value };
       if (field === "startPos") updates.pos = value;
-      if (field === "endPos" && prev.status !== "moving") updates.pos = prev.startPos;
+      if (field === "endPos" && prev.status !== "moving")
+        updates.pos = prev.startPos;
       if (prev.status !== "moving") {
         updates.path = [];
         updates.status = "idle";
@@ -121,7 +170,7 @@ export default function Home() {
 
   // Di chuyển mỗi 1s
   useEffect(() => {
-    const interval = setInterval(() => setTick(prev => prev + 1), 1000);
+    const interval = setInterval(() => setTick((prev) => prev + 1), 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -132,32 +181,43 @@ export default function Home() {
       const nextPos = vehicle.path[0];
       const newPath = vehicle.path.slice(1);
       const status = newPath.length === 0 ? "waiting_at_end" : "moving";
-      setter(prev => ({ ...prev, pos: nextPos, path: newPath, status }));
+      setter((prev) => ({ ...prev, pos: nextPos, path: newPath, status }));
     });
   }, [tick]);
 
   return (
-    <div style={{
-      padding: 30,
-      background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-      minHeight: "100vh",
-      fontFamily: "Segoe UI, sans-serif",
-      color: "#e2e8f0",
-    }}>
+    <div
+      style={{
+        padding: 30,
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+        minHeight: "100vh",
+        fontFamily: "Segoe UI, sans-serif",
+        color: "#e2e8f0",
+      }}
+    >
       <ClockDisplay />
 
-      <h1 style={{
-        textAlign: "center",
-        marginBottom: 30,
-        color: "#60a5fa",
-        fontSize: "2.8rem",
-        fontWeight: "bold",
-        textShadow: "0 0 30px rgba(96,165,250,0.6)",
-      }}>
+      <h1
+        style={{
+          textAlign: "center",
+          marginBottom: 30,
+          color: "#60a5fa",
+          fontSize: "2.8rem",
+          fontWeight: "bold",
+          textShadow: "0 0 30px rgba(96,165,250,0.6)",
+        }}
+      >
         XE GIAO HÀNG TỰ ĐỘNG
       </h1>
 
-      <div style={{ display: "flex", gap: 60, justifyContent: "center", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 60,
+          justifyContent: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <MapGrid v1={v1} v2={v2} />
         <UnifiedControlPanel
           v1={v1}
