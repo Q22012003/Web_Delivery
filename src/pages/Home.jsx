@@ -10,6 +10,9 @@ import { aStarSearch } from "../utils/aStar";
 import { findSafePathWithReturn } from "../utils/smartPathfinding";
 
 export default function Home() {
+ 
+  const [isRunningTogether, setIsRunningTogether] = useState(false);
+
   // === State xe V1 & V2 ===
   const [v1, setV1] = useState({
     id: "V1",
@@ -88,52 +91,42 @@ export default function Home() {
       addLog("System", 0, "Có xe đang chạy! Vui lòng chờ hết chuyến.");
       return;
     }
+  
+    setIsRunningTogether(true);
 
-    // Bước 1: Tính đường tối ưu cho V1 (không biết V2)
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath || v1FullPath.length < 2) {
       alert("V1: Không tìm được đường!");
       return;
     }
-
-    // Bước 2: Đặt trước toàn bộ thời gian V1 chiếm giữ
-    // CHỈ reserve các ô mà V1 đi qua (không tính ô đích cuối)
-    const reservedByV1 = new Set();
-    const reservedEdgesByV1 = new Set();
-    for (let i = 1; i < v1FullPath.length - 1; i++) {
-      // từ bước 1 đến trước đích
-      const pos = v1FullPath[i];
-      const t = i + 3; // vì V2 chậm hơn 3 tick
-      reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
-
-      // Nếu có next (transition), reserve edge at time t (from pos at t-1 -> next at t)
-      const next = v1FullPath[i + 1];
-      if (next) {
-        // represent edge as "r1,c1->r2,c2@t" meaning at tick t V1 moved from pos -> next
-        reservedEdgesByV1.add(
-          `${pos[0]},${pos[1]}->${next[0]},${next[1]}@${t}`
-        );
-      }
-    }
-    const allReserved = new Set([...reservedByV1, ...reservedEdgesByV1]);
-
-    // Bước 3: V2 tìm đường ĐI + VỀ, biết trước toàn bộ V1 và tự bảo vệ chính mình
+  
+    // RESERVE TOÀN BỘ ĐƯỜNG ĐI + VỀ CỦA V1 (từ tick 0)
+    const allReserved = new Set();
+  for (let i = 1; i < v1FullPath.length; i++) {
+    const pos = v1FullPath[i];
+    const prev = v1FullPath[i - 1];
+    const t = i; // V1 đến vị trí thứ i ở tick i → đúng tuyệt đối
+    allReserved.add(`${pos[0]},${pos[1]}@${t}`);
+    allReserved.add(`${prev[0]},${prev[1]}->${pos[0]},${pos[1]}@${t}`);
+  }
+  
+    // V2 tìm đường, biết trước toàn bộ V1 (cả đi lẫn về)
     const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
       allReserved,
-      3,
-      v1FullPath // optional: truyền full path để V2 có thêm thông tin nếu cần
+      2,
+      v1FullPath
     );
-
+  
     if (!v2FullPath) {
       addLog("System", 0, "V2 không thể di chuyển! Kiểm tra lại bản đồ.");
       return;
     }
-
+  
     addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – KHÔNG VA CHẠM ĐẢM BẢO 100%!");
-
-    // Gửi V1 đi ngay
+  
+    // Gửi xe đi
     setV1({
       ...v1,
       pos: v1.startPos,
@@ -142,8 +135,7 @@ export default function Home() {
       deliveries: v1.deliveries + 1,
       tripLog: v1FullPath,
     });
-
-    // V2 đi chậm hơn 3 bước (3000ms) → tránh chồng start + tránh 99% va chạm
+  
     setTimeout(() => {
       setV2({
         ...v2,
@@ -153,13 +145,12 @@ export default function Home() {
         deliveries: v2.deliveries + 1,
         tripLog: v2FullPath,
       });
-    }, 1700); // Tăng từ 2600 → 3000 để an toàn tuyệt đối
-
-    // Log đẹp
+    }, 1700);
+  
     setTimeout(() => {
       addLog("V1", v1.deliveries + 1, v1FullPath);
       addLog("V2", v2.deliveries + 1, v2FullPath);
-    }, 2000);
+    }, 1500);
   };
 
   const updateVehicle = (id, field, value) => {
@@ -206,6 +197,12 @@ useEffect(() => {
     clearInterval(v2Interval);
   };
 }, [v1.path, v2.path]);
+
+useEffect(() => {
+  if (v1.status !== "moving" && v2.status !== "moving" && isRunningTogether) {
+    setIsRunningTogether(false);
+  }
+}, [v1.status, v2.status, isRunningTogether]);
 
   return (
     <div
