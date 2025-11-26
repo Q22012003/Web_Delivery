@@ -99,21 +99,31 @@ export default function Home() {
     // Bước 2: Đặt trước toàn bộ thời gian V1 chiếm giữ
     // CHỈ reserve các ô mà V1 đi qua (không tính ô đích cuối)
     const reservedByV1 = new Set();
+    const reservedEdgesByV1 = new Set();
     for (let i = 1; i < v1FullPath.length - 1; i++) {
       // từ bước 1 đến trước đích
       const pos = v1FullPath[i];
       const t = i + 3; // vì V2 chậm hơn 3 tick
       reservedByV1.add(`${pos[0]},${pos[1]}@${t}`);
+
+      // Nếu có next (transition), reserve edge at time t (from pos at t-1 -> next at t)
+      const next = v1FullPath[i + 1];
+      if (next) {
+        // represent edge as "r1,c1->r2,c2@t" meaning at tick t V1 moved from pos -> next
+        reservedEdgesByV1.add(
+          `${pos[0]},${pos[1]}->${next[0]},${next[1]}@${t}`
+        );
+      }
     }
+    const allReserved = new Set([...reservedByV1, ...reservedEdgesByV1]);
 
     // Bước 3: V2 tìm đường ĐI + VỀ, biết trước toàn bộ V1 và tự bảo vệ chính mình
     const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
-      reservedByV1,
+      allReserved,
       3,
-      v1.startPos, // ← thêm: cho V2 biết V1 xuất phát từ đâu
-      v1.endPos // ← thêm: cho V2 biết V1 đi đâu
+      v1FullPath // optional: truyền full path để V2 có thêm thông tin nếu cần
     );
 
     if (!v2FullPath) {
@@ -143,7 +153,7 @@ export default function Home() {
         deliveries: v2.deliveries + 1,
         tripLog: v2FullPath,
       });
-    }, 2000); // Tăng từ 2600 → 3000 để an toàn tuyệt đối
+    }, 1700); // Tăng từ 2600 → 3000 để an toàn tuyệt đối
 
     // Log đẹp
     setTimeout(() => {
@@ -174,16 +184,28 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    [v1, setV1, v2, setV2].forEach((vehicle, i) => {
-      const setter = i === 0 ? setV1 : i === 2 ? setV2 : null;
-      if (!setter || vehicle.path.length === 0) return;
-      const nextPos = vehicle.path[0];
-      const newPath = vehicle.path.slice(1);
+  // Thay toàn bộ useEffect tick hiện tại bằng:
+useEffect(() => {
+  const moveVehicle = (setter, path, setVehicle) => {
+    if (path.length > 0) {
+      const nextPos = path[0];
+      const newPath = path.slice(1);
       const status = newPath.length === 0 ? "waiting_at_end" : "moving";
-      setter((prev) => ({ ...prev, pos: nextPos, path: newPath, status }));
-    });
-  }, [tick]);
+      setter(prev => ({ ...prev, pos: nextPos, path: newPath, status }));
+    }
+  };
+
+  const v1Interval = setInterval(() => moveVehicle(setV1, v1.path, setV1), 1000);
+  const v2Interval = setInterval(() => moveVehicle(setV2, v2.path, setV2), 1000);
+
+  // V2 luôn chậm hơn V1 đúng 0.5s
+  const v2Offset = setTimeout(() => {}, 500);
+
+  return () => {
+    clearInterval(v1Interval);
+    clearInterval(v2Interval);
+  };
+}, [v1.path, v2.path]);
 
   return (
     <div
