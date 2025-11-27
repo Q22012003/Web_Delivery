@@ -10,7 +10,6 @@ import { aStarSearch } from "../utils/aStar";
 import { findSafePathWithReturn } from "../utils/smartPathfinding";
 
 export default function Home() {
- 
   const [isRunningTogether, setIsRunningTogether] = useState(false);
 
   // === State xe V1 & V2 ===
@@ -93,40 +92,46 @@ export default function Home() {
     }
   
     setIsRunningTogether(true);
-
+  
+    // B1: Tính đường đầy đủ cho V1 (đi + về)
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath || v1FullPath.length < 2) {
       alert("V1: Không tìm được đường!");
+      setIsRunningTogether(false);
       return;
     }
   
-    // RESERVE TOÀN BỘ ĐƯỜNG ĐI + VỀ CỦA V1 (từ tick 0)
-    const allReserved = new Set();
-  for (let i = 1; i < v1FullPath.length; i++) {
-    const pos = v1FullPath[i];
-    const prev = v1FullPath[i - 1];
-    const t = i; // V1 đến vị trí thứ i ở tick i → đúng tuyệt đối
-    allReserved.add(`${pos[0]},${pos[1]}@${t}`);
-    allReserved.add(`${prev[0]},${prev[1]}->${pos[0]},${pos[1]}@${t}`);
-  }
+    // B2: Reserve toàn bộ đường đi + về của V1, bắt đầu từ tick 0
+    const v1Reserved = new Set();
+    for (let i = 1; i < v1FullPath.length; i++) {
+      const pos = v1FullPath[i];
+      const prev = v1FullPath[i - 1];
+      const t = i; // V1 đến vị trí i vào tick i
+      v1Reserved.add(`${pos[0]},${pos[1]}@${t}`);
+      v1Reserved.add(`${prev[0]},${prev[1]}->${pos[0]},${pos[1]}@${t}`);
+    }
   
-    // V2 tìm đường, biết trước toàn bộ V1 (cả đi lẫn về)
+    // B3: V2 tìm đường an toàn, biết trước toàn bộ V1
+    //     V2 thực sự xuất phát sau 17 tick → v1StartTime = 0, nhưng V2 bắt đầu đi ở tick 17
     const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
-      allReserved,
-      2,
-      v1FullPath
+      v1Reserved,
+      17,              // timeOffset = 0 → V2 tính từ tick 0
+      v1FullPath,      // biết trước đường V1
+      0,         // v1StartTime = 0
+      17         
     );
   
-    if (!v2FullPath) {
-      addLog("System", 0, "V2 không thể di chuyển! Kiểm tra lại bản đồ.");
+    if (!v2FullPath || v2FullPath.length < 2) {
+      addLog("System", 0, "V2 không tìm được đường an toàn!");
+      setIsRunningTogether(false);
       return;
     }
   
-    addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – KHÔNG VA CHẠM ĐẢM BẢO 100%!");
+    addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – KHÔNG VA CHẠM 100% ĐẢM BẢO!");
   
-    // Gửi xe đi
+    // Gửi V1 đi ngay
     setV1({
       ...v1,
       pos: v1.startPos,
@@ -136,6 +141,7 @@ export default function Home() {
       tripLog: v1FullPath,
     });
   
+    // Gửi V2 đi sau đúng 1700ms = 17 tick
     setTimeout(() => {
       setV2({
         ...v2,
@@ -147,6 +153,7 @@ export default function Home() {
       });
     }, 1700);
   
+    // Log sau chút để đẹp
     setTimeout(() => {
       addLog("V1", v1.deliveries + 1, v1FullPath);
       addLog("V2", v2.deliveries + 1, v2FullPath);
@@ -176,33 +183,36 @@ export default function Home() {
   }, []);
 
   // Thay toàn bộ useEffect tick hiện tại bằng:
-useEffect(() => {
-  const moveVehicle = (setter, path, setVehicle) => {
-    if (path.length > 0) {
-      const nextPos = path[0];
-      const newPath = path.slice(1);
-      const status = newPath.length === 0 ? "waiting_at_end" : "moving";
-      setter(prev => ({ ...prev, pos: nextPos, path: newPath, status }));
+  useEffect(() => {
+    const moveVehicle = (setter, path, setVehicle) => {
+      if (path.length > 0) {
+        const nextPos = path[0];
+        const newPath = path.slice(1);
+        const status = newPath.length === 0 ? "waiting_at_end" : "moving";
+        setter((prev) => ({ ...prev, pos: nextPos, path: newPath, status }));
+      }
+    };
+
+    const v1Interval = setInterval(
+      () => moveVehicle(setV1, v1.path, setV1),
+      1000
+    );
+    const v2Interval = setInterval(
+      () => moveVehicle(setV2, v2.path, setV2),
+      1000
+    );
+
+    return () => {
+      clearInterval(v1Interval);
+      clearInterval(v2Interval);
+    };
+  }, [v1.path, v2.path]);
+
+  useEffect(() => {
+    if (v1.status !== "moving" && v2.status !== "moving" && isRunningTogether) {
+      setIsRunningTogether(false);
     }
-  };
-
-  const v1Interval = setInterval(() => moveVehicle(setV1, v1.path, setV1), 1000);
-  const v2Interval = setInterval(() => moveVehicle(setV2, v2.path, setV2), 1000);
-
-  // V2 luôn chậm hơn V1 đúng 0.5s
-  const v2Offset = setTimeout(() => {}, 500);
-
-  return () => {
-    clearInterval(v1Interval);
-    clearInterval(v2Interval);
-  };
-}, [v1.path, v2.path]);
-
-useEffect(() => {
-  if (v1.status !== "moving" && v2.status !== "moving" && isRunningTogether) {
-    setIsRunningTogether(false);
-  }
-}, [v1.status, v2.status, isRunningTogether]);
+  }, [v1.status, v2.status, isRunningTogether]);
 
   return (
     <div

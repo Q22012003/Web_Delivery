@@ -5,6 +5,10 @@ export default function Vehicle({ id, pos, status, index = 0 }) {
   if (!pos) return null;
   const [row, col] = pos;
 
+// KEY: Tinh chỉnh cực mịn để xe "né" nhau tự nhiên + bánh chạm đất đẹp
+const isV1 = id === "V1";
+const isV2 = id === "V2";
+
   // Tính vị trí gốc (center của cell)
   let x = (col - 1) * 20 + 10;
   let y = (5 - row) * 20 + 10;
@@ -54,7 +58,9 @@ export default function Vehicle({ id, pos, status, index = 0 }) {
   // 5. Hạ trọng tâm toàn bộ xe xuống thêm tí nữa cho bánh CHẠM ĐẤT
   y += 2.8; // ← CÁI NÀY LÀ CHÌA KHÓA VÀNG: hạ xe xuống để bánh chạm line
 
-  const color = id === "V1" ? "#ff4444" : "#00C853";
+  // === Màu + trạng thái đèn ===
+  const baseColor = isV1 ? "#ff4444" : "#00C853";
+  const color = status === "moving" ? baseColor : "#555555";
 
   return (
     <div
@@ -64,9 +70,10 @@ export default function Vehicle({ id, pos, status, index = 0 }) {
         top: `${y}%`,
         width: "11.5%",
         transform: "translate(-50%, -50%)",
-        transition: "all 0.8s cubic-bezier(0.32, 0, 0.67, 0)",
+        transition: "all 0.88s cubic-bezier(0.32, 0.08, 0.24, 1)",
         zIndex: row === 1 ? 50 : row === 5 ? 48 : 30,
         pointerEvents: "none",
+        filter: status === "moving" ? "drop-shadow(0 0 12px rgba(255,255,255,0.6))" : "none",
       }}
     >
       <CarIcon color={status === "moving" ? color : "#666666"} />
@@ -81,11 +88,13 @@ export default function Vehicle({ id, pos, status, index = 0 }) {
           color: "#fff",
           fontWeight: "bold",
           fontSize: "0.95vw",
-          padding: "4px 10px",
-          borderRadius: "9px",
+          padding: "4px 11px",
+          borderRadius: "10px",
           border: `2.5px solid ${color}`,
           whiteSpace: "nowrap",
           boxShadow: "0 6px 16px rgba(0,0,0,0.8)",
+          opacity: status === "moving" ? 1 : 0.7,
+          transition: "all 0.4s",
         }}
       >
         {id}
