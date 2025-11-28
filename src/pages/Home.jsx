@@ -90,9 +90,9 @@ export default function Home() {
       addLog("System", 0, "Có xe đang chạy! Vui lòng chờ hết chuyến.");
       return;
     }
-  
+
     setIsRunningTogether(true);
-  
+
     // B1: Tính đường đầy đủ cho V1 (đi + về)
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath || v1FullPath.length < 2) {
@@ -100,7 +100,7 @@ export default function Home() {
       setIsRunningTogether(false);
       return;
     }
-  
+
     // B2: Reserve toàn bộ đường đi + về của V1, bắt đầu từ tick 0
     const v1Reserved = new Set();
     for (let i = 1; i < v1FullPath.length; i++) {
@@ -110,27 +110,27 @@ export default function Home() {
       v1Reserved.add(`${pos[0]},${pos[1]}@${t}`);
       v1Reserved.add(`${prev[0]},${prev[1]}->${pos[0]},${pos[1]}@${t}`);
     }
-  
+
     // B3: V2 tìm đường an toàn, biết trước toàn bộ V1
     //     V2 thực sự xuất phát sau 17 tick → v1StartTime = 0, nhưng V2 bắt đầu đi ở tick 17
     const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
       v1Reserved,
-      17,              // timeOffset = 0 → V2 tính từ tick 0
-      v1FullPath,      // biết trước đường V1
-      0,         // v1StartTime = 0
-      17         
+      17, // timeOffset = 0 → V2 tính từ tick 0
+      v1FullPath, // biết trước đường V1
+      0, // v1StartTime = 0
+      17
     );
-  
+
     if (!v2FullPath || v2FullPath.length < 2) {
       addLog("System", 0, "V2 không tìm được đường an toàn!");
       setIsRunningTogether(false);
       return;
     }
-  
+
     addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – KHÔNG VA CHẠM 100% ĐẢM BẢO!");
-  
+
     // Gửi V1 đi ngay
     setV1({
       ...v1,
@@ -140,7 +140,7 @@ export default function Home() {
       deliveries: v1.deliveries + 1,
       tripLog: v1FullPath,
     });
-  
+
     // Gửi V2 đi sau đúng 1700ms = 17 tick
     setTimeout(() => {
       setV2({
@@ -152,7 +152,7 @@ export default function Home() {
         tripLog: v2FullPath,
       });
     }, 1700);
-  
+
     // Log sau chút để đẹp
     setTimeout(() => {
       addLog("V1", v1.deliveries + 1, v1FullPath);

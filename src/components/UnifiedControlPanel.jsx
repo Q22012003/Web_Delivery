@@ -56,12 +56,25 @@ export default function UnifiedControlPanel({
 
       {/* === XE V1 === */}
       <div style={{ borderBottom: "1px solid #ddd", paddingBottom: 16 }}>
-        <h4 style={{ margin: "0 0 12px", color: "#ff4444", fontWeight: "bold" }}>
+        <h4
+          style={{ margin: "0 0 12px", color: "#ff4444", fontWeight: "bold" }}
+        >
           XE V1
         </h4>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: "bold" }}>Xuất phát:</label>
+          <label
+            style={{
+              fontWeight: "bold",
+              color: "#1565c0",
+              display: "block",
+              marginBottom: 4,
+              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
+            }}
+          >
+            Xuất phát:
+          </label>
+
           <select
             value={v1.startPos.join(",")}
             onChange={(e) =>
@@ -85,7 +98,19 @@ export default function UnifiedControlPanel({
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: "bold" }}>Kết thúc:</label>
+          <label
+            style={{
+              fontWeight: "bold",
+              color: "#1565c0",
+              display: "block",
+              marginBottom: 4,
+              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
+              letterSpacing: "0.3px",
+            }}
+          >
+            Kết thúc:
+          </label>
+
           <select
             value={v1.endPos.join(",")}
             onChange={(e) =>
@@ -130,12 +155,25 @@ export default function UnifiedControlPanel({
 
       {/* === XE V2 === */}
       <div>
-        <h4 style={{ margin: "0 0 12px", color: "#00C853", fontWeight: "bold" }}>
+        <h4
+          style={{ margin: "0 0 12px", color: "#00C853", fontWeight: "bold" }}
+        >
           XE V2
         </h4>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: "bold" }}>Xuất phát:</label>
+          <label
+            style={{
+              fontWeight: "bold",
+              color: "#1565c0",
+              display: "block",
+              marginBottom: 4,
+              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
+            }}
+          >
+            Xuất phát:
+          </label>
+
           <select
             value={v2.startPos.join(",")}
             onChange={(e) =>
@@ -159,7 +197,19 @@ export default function UnifiedControlPanel({
         </div>
 
         <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: "bold" }}>Kết thúc:</label>
+          <label
+            style={{
+              fontWeight: "bold",
+              color: "#1565c0",
+              display: "block",
+              marginBottom: 4,
+              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
+              letterSpacing: "0.3px",
+            }}
+          >
+            Kết thúc:
+          </label>
+
           <select
             value={v2.endPos.join(",")}
             onChange={(e) =>
@@ -223,9 +273,7 @@ export default function UnifiedControlPanel({
           marginTop: 8,
         }}
       >
-        {allDisabled
-          ? "Đang thực hiện chuyến đi..."
-          : "CHẠY CÙNG LÚC "}
+        {allDisabled ? "Đang thực hiện chuyến đi..." : "CHẠY CÙNG LÚC "}
       </button>
 
       {allDisabled && (

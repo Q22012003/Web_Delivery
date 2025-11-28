@@ -5,9 +5,9 @@ export default function Vehicle({ id, pos, status, index = 0 }) {
   if (!pos) return null;
   const [row, col] = pos;
 
-// KEY: Tinh chỉnh cực mịn để xe "né" nhau tự nhiên + bánh chạm đất đẹp
-const isV1 = id === "V1";
-const isV2 = id === "V2";
+  // KEY: Tinh chỉnh cực mịn để xe "né" nhau tự nhiên + bánh chạm đất đẹp
+  const isV1 = id === "V1";
+  const isV2 = id === "V2";
 
   // Tính vị trí gốc (center của cell)
   let x = (col - 1) * 20 + 10;
@@ -16,9 +16,9 @@ const isV2 = id === "V2";
   // ===== ÉP SÁT THEO LINE CHUẨN =====
 
   // SÁT TRÁI CHO CỘT 1
-  if (col === 1) {
-    x = (col - 1) * 20 + 3.8; // 6.8% từ mép → sát line trái
-  }
+  // if (col === 1) {
+  //  x = (col - 1) * 20 + 3.8; // 6.8% từ mép → sát line trái
+  //}
 
   if (col === 2) x = (col - 1) * 20 + 4; // lùi 1 tí giống 1.1
   if (col === 3) x = (col - 1) * 20 + 4;
@@ -54,7 +54,10 @@ const isV2 = id === "V2";
     if (index === 0) x = 3.8; // V1 sát line trái
     if (index === 1) x = 10.5; // V2 chồng sau vừa đẹp
   }
-
+  // ÉP CỘT 1 KHI XE CHẠY
+  if (col === 1 && status === "moving") {
+    x = (col - 1) * 20 + 3.8;
+  }
   // 5. Hạ trọng tâm toàn bộ xe xuống thêm tí nữa cho bánh CHẠM ĐẤT
   y += 2.8; // ← CÁI NÀY LÀ CHÌA KHÓA VÀNG: hạ xe xuống để bánh chạm line
 
@@ -73,7 +76,10 @@ const isV2 = id === "V2";
         transition: "all 0.88s cubic-bezier(0.32, 0.08, 0.24, 1)",
         zIndex: row === 1 ? 50 : row === 5 ? 48 : 30,
         pointerEvents: "none",
-        filter: status === "moving" ? "drop-shadow(0 0 12px rgba(255,255,255,0.6))" : "none",
+        filter:
+          status === "moving"
+            ? "drop-shadow(0 0 12px rgba(255,255,255,0.6))"
+            : "none",
       }}
     >
       <CarIcon color={status === "moving" ? color : "#666666"} />
