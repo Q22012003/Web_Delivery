@@ -5,7 +5,9 @@ export default function UnifiedControlPanel({
   onChange,
   onStart,
   onStartTogether,
-  disableAll = false, // ← NEW: khóa toàn bộ khi chạy đôi hoặc có xe đang chạy
+  cargoAmounts = { V1: "", V2: "" },
+  setCargoAmounts = () => {},
+  disableAll = false,
 }) {
   const startPoints = [
     [1, 1],
@@ -14,6 +16,7 @@ export default function UnifiedControlPanel({
     [1, 4],
     [1, 5],
   ];
+
   const endPoints = [
     [5, 1],
     [5, 2],
@@ -22,277 +25,202 @@ export default function UnifiedControlPanel({
     [5, 5],
   ];
 
-  // Tắt toàn bộ nếu đang chạy đôi hoặc có xe đang chạy
   const isAnyMoving = v1.status === "moving" || v2.status === "moving";
+
   const allDisabled = disableAll || isAnyMoving;
 
-  return (
-    <div
-      style={{
-        border: "2px solid #000",
-        padding: 24,
-        borderRadius: 12,
-        background: "#fff",
-        width: 400,
-        boxShadow: "0 6px 16px rgba(0,0,0,0.2)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 24,
-        opacity: allDisabled ? 0.85 : 1,
-        transition: "opacity 0.3s ease",
-      }}
-    >
-      <h3
+  // ==== BOX INPUT NHẬP SỐ HÀNG ====
+  const renderCargoInput = (label, key) => (
+    <div style={{ marginBottom: 10 }}>
+      <label style={styles.label}>{label}</label>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        placeholder="Nhập số hàng"
+        value={cargoAmounts[key]}
+        onChange={(e) =>
+          setCargoAmounts({
+            ...cargoAmounts,
+            [key]: e.target.value.replace(/[^0-9]/g, ""),
+          })
+        }
+        disabled={allDisabled}
         style={{
-          margin: "0 0 16px",
-          color: "#1976d2",
-          textAlign: "center",
-          fontSize: "1.5rem",
-          fontWeight: "bold",
+          ...styles.input,
+          MozAppearance: "textfield", // Firefox
         }}
-      >
-        BẢNG ĐIỀU KHIỂN XE GIAO HÀNG
-      </h3>
+        onKeyDown={(e) => {
+          // Ngăn mũi tên lên/xuống thay đổi giá trị
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+          }
+        }}
+      />
+    </div>
+  );
 
-      {/* === XE V1 === */}
-      <div style={{ borderBottom: "1px solid #ddd", paddingBottom: 16 }}>
-        <h4
-          style={{ margin: "0 0 12px", color: "#ff4444", fontWeight: "bold" }}
-        >
-          XE V1
-        </h4>
+  const renderSelect = (value, onChange, options) => (
+    <select
+      value={value}
+      onChange={onChange}
+      disabled={allDisabled}
+      style={styles.select}
+    >
+      {options.map((p) => (
+        <option key={p.join(",")} value={p.join(",")}>
+          [{p.join(", ")}]
+        </option>
+      ))}
+    </select>
+  );
 
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontWeight: "bold",
-              color: "#1565c0",
-              display: "block",
-              marginBottom: 4,
-              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
-            }}
-          >
-            Xuất phát:
-          </label>
+  return (
+    <div style={styles.panel}>
+      <h3 style={styles.title}>BẢNG ĐIỀU KHIỂN XE GIAO HÀNG</h3>
 
-          <select
-            value={v1.startPos.join(",")}
-            onChange={(e) =>
-              onChange("V1", "startPos", e.target.value.split(",").map(Number))
-            }
-            disabled={allDisabled}
-            style={{
-              width: "100%",
-              padding: 8,
-              marginTop: 4,
-              border: "1px solid #ccc",
-              borderRadius: 4,
-            }}
-          >
-            {startPoints.map((p) => (
-              <option key={p.join(",")} value={p.join(",")}>
-                [{p.join(", ")}]
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* ==== XE V1 ==== */}
+      <div style={styles.vehicleBox}>
+        <h4 style={{ ...styles.vehicleTitle, color: "#ff4444" }}>XE V1</h4>
 
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontWeight: "bold",
-              color: "#1565c0",
-              display: "block",
-              marginBottom: 4,
-              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
-              letterSpacing: "0.3px",
-            }}
-          >
-            Kết thúc:
-          </label>
+        <label style={styles.label}>Xuất phát:</label>
+        {renderSelect(
+          v1.startPos.join(","),
+          (e) =>
+            onChange("V1", "startPos", e.target.value.split(",").map(Number)),
+          startPoints
+        )}
 
-          <select
-            value={v1.endPos.join(",")}
-            onChange={(e) =>
-              onChange("V1", "endPos", e.target.value.split(",").map(Number))
-            }
-            disabled={allDisabled}
-            style={{
-              width: "100%",
-              padding: 8,
-              marginTop: 4,
-              border: "1px solid #ccc",
-              borderRadius: 4,
-            }}
-          >
-            {endPoints.map((p) => (
-              <option key={p.join(",")} value={p.join(",")}>
-                [{p.join(", ")}]
-              </option>
-            ))}
-          </select>
-        </div>
+        <label style={styles.label}>Kết thúc:</label>
+        {renderSelect(
+          v1.endPos.join(","),
+          (e) =>
+            onChange("V1", "endPos", e.target.value.split(",").map(Number)),
+          endPoints
+        )}
+
+        {renderCargoInput("Số hàng V1:", "V1")}
 
         <button
           onClick={() => onStart("V1")}
           disabled={allDisabled}
-          style={{
-            width: "100%",
-            padding: 11,
-            fontSize: 15,
-            background: allDisabled ? "#999" : "#ff4444",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-            fontWeight: "bold",
-            cursor: allDisabled ? "not-allowed" : "pointer",
-            transition: "all 0.2s",
-          }}
+          style={{ ...styles.button, background: "#ff4444" }}
         >
-          {v1.status === "moving" ? "V1 Đang giao hàng..." : "Bắt đầu V1"}
+          {v1.status === "moving" ? "V1 đang chạy..." : "Bắt đầu V1"}
         </button>
       </div>
 
-      {/* === XE V2 === */}
-      <div>
-        <h4
-          style={{ margin: "0 0 12px", color: "#00C853", fontWeight: "bold" }}
-        >
-          XE V2
-        </h4>
+      {/* ==== XE V2 ==== */}
+      <div style={styles.vehicleBox}>
+        <h4 style={{ ...styles.vehicleTitle, color: "#00C853" }}>XE V2</h4>
 
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontWeight: "bold",
-              color: "#1565c0",
-              display: "block",
-              marginBottom: 4,
-              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
-            }}
-          >
-            Xuất phát:
-          </label>
+        <label style={styles.label}>Xuất phát:</label>
+        {renderSelect(
+          v2.startPos.join(","),
+          (e) =>
+            onChange("V2", "startPos", e.target.value.split(",").map(Number)),
+          startPoints
+        )}
 
-          <select
-            value={v2.startPos.join(",")}
-            onChange={(e) =>
-              onChange("V2", "startPos", e.target.value.split(",").map(Number))
-            }
-            disabled={allDisabled}
-            style={{
-              width: "100%",
-              padding: 8,
-              marginTop: 4,
-              border: "1px solid #ccc",
-              borderRadius: 4,
-            }}
-          >
-            {startPoints.map((p) => (
-              <option key={p.join(",")} value={p.join(",")}>
-                [{p.join(", ")}]
-              </option>
-            ))}
-          </select>
-        </div>
+        <label style={styles.label}>Kết thúc:</label>
+        {renderSelect(
+          v2.endPos.join(","),
+          (e) =>
+            onChange("V2", "endPos", e.target.value.split(",").map(Number)),
+          endPoints
+        )}
 
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontWeight: "bold",
-              color: "#1565c0",
-              display: "block",
-              marginBottom: 4,
-              textShadow: "0 1px 1px rgba(0,0,0,0.15)",
-              letterSpacing: "0.3px",
-            }}
-          >
-            Kết thúc:
-          </label>
-
-          <select
-            value={v2.endPos.join(",")}
-            onChange={(e) =>
-              onChange("V2", "endPos", e.target.value.split(",").map(Number))
-            }
-            disabled={allDisabled}
-            style={{
-              width: "100%",
-              padding: 8,
-              marginTop: 4,
-              border: "1px solid #ccc",
-              borderRadius: 4,
-            }}
-          >
-            {endPoints.map((p) => (
-              <option key={p.join(",")} value={p.join(",")}>
-                [{p.join(", ")}]
-              </option>
-            ))}
-          </select>
-        </div>
+        {renderCargoInput("Số hàng V2:", "V2")}
 
         <button
           onClick={() => onStart("V2")}
           disabled={allDisabled}
-          style={{
-            width: "100%",
-            padding: 11,
-            fontSize: 15,
-            background: allDisabled ? "#999" : "#00C853",
-            color: "white",
-            border: "none",
-            borderRadius: 6,
-            fontWeight: "bold",
-            cursor: allDisabled ? "not-allowed" : "pointer",
-            transition: "all 0.2s",
-          }}
+          style={{ ...styles.button, background: "#00C853" }}
         >
-          {v2.status === "moving" ? "V2 Đang giao hàng..." : "Bắt đầu V2"}
+          {v2.status === "moving" ? "V2 đang chạy..." : "Bắt đầu V2"}
         </button>
       </div>
 
-      {/* === NÚT CHẠY CÙNG LÚC === */}
+      {/* ==== CHẠY CÙNG ==== */}
       <button
         onClick={onStartTogether}
         disabled={allDisabled}
-        style={{
-          width: "100%",
-          padding: 12,
-          fontSize: 16,
-          background: allDisabled
-            ? "#999"
-            : "linear-gradient(135deg, #1976d2, #42a5f5)",
-          color: "white",
-          border: "none",
-          borderRadius: 8,
-          fontWeight: "bold",
-          cursor: allDisabled ? "not-allowed" : "pointer",
-          boxShadow: allDisabled ? "none" : "0 4px 15px rgba(25,118,210,0.4)",
-          transition: "all 0.3s ease",
-          marginTop: 8,
-        }}
+        style={styles.togetherBtn}
       >
-        {allDisabled ? "Đang thực hiện chuyến đi..." : "CHẠY CÙNG LÚC "}
+        {allDisabled ? "Đang thực hiện chuyến đi..." : "CHẠY CÙNG LÚC"}
       </button>
-
-      {allDisabled && (
-        <div
-          style={{
-            textAlign: "center",
-            color: "#d32f2f",
-            fontSize: "0.9rem",
-            fontWeight: "bold",
-            marginTop: 8,
-            padding: "8px",
-            background: "#ffebee",
-            borderRadius: 6,
-            border: "1px solid #ffcdd2",
-          }}
-        >
-          Vui lòng chờ xe hoàn thành chuyến đi!
-        </div>
-      )}
     </div>
   );
 }
+
+// ================= STYLES =================
+const styles = {
+  panel: {
+    border: "2px solid #000",
+    padding: 20,
+    borderRadius: 12,
+    background: "#fff",
+    width: 360,
+    boxShadow: "0 6px 16px rgba(0,0,0,0.2)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 20,
+  },
+  title: {
+    margin: 0,
+    color: "#1976d2",
+    textAlign: "center",
+    fontSize: "1.3rem",
+    fontWeight: "bold",
+  },
+  vehicleBox: {
+    borderBottom: "1px solid #ddd",
+    paddingBottom: 12,
+  },
+  vehicleTitle: {
+    margin: "0 0 8px",
+    fontWeight: "bold",
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#1565c0",
+    marginTop: 6,
+    display: "block",
+  },
+  select: {
+    width: "100%",
+    padding: 6,
+    borderRadius: 4,
+    border: "1px solid #ccc",
+    fontSize: 13,
+    marginBottom: 6,
+  },
+  input: {
+    width: "70%",
+    padding: "5px 8px",
+    fontSize: 13,
+    borderRadius: 4,
+    border: "1px solid #aaa",
+    outline: "none",
+  },
+  button: {
+    width: "100%",
+    marginTop: 6,
+    padding: 8,
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    fontWeight: "bold",
+    cursor: "pointer",
+  },
+  togetherBtn: {
+    width: "100%",
+    padding: 10,
+    borderRadius: 8,
+    border: "none",
+    fontWeight: "bold",
+    background: "linear-gradient(135deg, #1976d2, #42a5f5)",
+    color: "#fff",
+  },
+};

@@ -50,28 +50,25 @@ export default function MapGrid({ v1, v2 }) {
     >
       {/* Vẽ lưới ĐẦY ĐỦ 5x5 (5 LINE dọc x 5 LINE ngang) - đẹp và đồng bộ */}
       {Array.from({ length: 5 }, (_, i) =>
-  i === 0 ? null : ( // XOÁ HÀNG 5 BẠN ĐANG NHÌN
-    Array.from({ length: 4 }, (_, j) => (
-      <div
-        key={`${i}-${j}`}
-        style={{
-          position: "absolute",
-          left: `${j * 20}%`,
-          top: `${i * 20}%`,
-          width: "20%",
-          height: "20%",
-          border: "2px solid rgba(255,255,255,0.08)",
-          background: "rgba(255,255,255,0.015)",
-          boxSizing: "border-box",
-          pointerEvents: "none",
-        }}
-      />
-    ))
-  )
-)}
-
-
-
+        i === 0
+          ? null // XOÁ HÀNG 5 BẠN ĐANG NHÌN
+          : Array.from({ length: 4 }, (_, j) => (
+              <div
+                key={`${i}-${j}`}
+                style={{
+                  position: "absolute",
+                  left: `${j * 20}%`,
+                  top: `${i * 20}%`,
+                  width: "20%",
+                  height: "20%",
+                  border: "2px solid rgba(255,255,255,0.08)",
+                  background: "rgba(255,255,255,0.015)",
+                  boxSizing: "border-box",
+                  pointerEvents: "none",
+                }}
+              />
+            ))
+      )}
 
       {/* Nhãn đúng trên LINE thứ 2-5 */}
       {labels.map((label, idx) => (
@@ -97,15 +94,16 @@ export default function MapGrid({ v1, v2 }) {
       <Vehicle
         id={v1.id}
         pos={v1.pos}
+        prevPos={v1.prevPos}
         status={v1.status}
-        nextPos={v1.path?.[0]}
         index={0}
       />
+
       <Vehicle
         id={v2.id}
         pos={v2.pos}
+        prevPos={v2.prevPos}
         status={v2.status}
-        nextPos={v2.path?.[0]}
         index={1}
       />
     </div>

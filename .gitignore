@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 .env
+
+cert/
+*.pem
+*.crt
+*.key

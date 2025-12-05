@@ -5,12 +5,17 @@ import UnifiedControlPanel from "../components/UnifiedControlPanel";
 import ClockDisplay from "../components/ClockDisplay";
 import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
+import StatisticsPage from "../components/StatisticsPage"; // Thêm mới
+import CollisionAlert from "../components/CollisionAlert"; // Thêm mới
 
 import { aStarSearch } from "../utils/aStar";
 import { findSafePathWithReturn } from "../utils/smartPathfinding";
 
 export default function Home() {
   const [isRunningTogether, setIsRunningTogether] = useState(false);
+  const [currentPage, setCurrentPage] = useState("home"); // Thêm mới: switch giữa home và stats
+  const [cargoAmounts, setCargoAmounts] = useState({ V1: "", V2: "" }); // Thêm mới: số lượng hàng
+  const [alertMessage, setAlertMessage] = useState(""); // Thêm mới: cho cảnh báo va chạm
 
   // === State xe V1 & V2 ===
   const [v1, setV1] = useState({
@@ -23,6 +28,8 @@ export default function Home() {
     status: "idle",
     deliveries: 0,
     tripLog: null,
+    prevPos: null,
+
   });
 
   const [v2, setV2] = useState({
@@ -35,6 +42,8 @@ export default function Home() {
     status: "idle",
     deliveries: 0,
     tripLog: null,
+    prevPos: null,
+
   });
 
   const [logs, setLogs] = useState([]);
@@ -82,6 +91,15 @@ export default function Home() {
         deliveries: vehicle.deliveries + 1,
         tripLog: fullPath,
       });
+      // Thêm mới: Lưu log
+      saveTripLog(
+        id,
+        vehicle.startPos,
+        vehicle.endPos,
+        cargoAmounts[id],
+        fullPath
+      );
+      addLog(id, vehicle.deliveries + 1, fullPath); // Giữ addLog nếu cần
     }, delay);
   };
 
@@ -129,7 +147,25 @@ export default function Home() {
       return;
     }
 
-    addLog("System", 0, "CHẠY ĐÔI THÀNH CÔNG – KHÔNG VA CHẠM 100% ĐẢM BẢO!");
+    // === CẢNH BÁO VA CHẠM MẠNH MẼ HƠN ===
+    const v1Cells = new Set(v1FullPath.map((p) => `${p[0]},${p[1]}`));
+    const v2Cells = new Set(v2FullPath.map((p) => `${p[0]},${p[1]}`));
+
+    const commonCells = [...v1Cells].filter((cell) => v2Cells.has(cell));
+
+    if (commonCells.length > 2) {
+      // chỉ tính điểm đầu và điểm cuối là bình thường
+      setAlertMessage(
+        `CẢNH BÁO VA CHẠM! Hai xe đi qua cùng ${
+          commonCells.length - 2
+        } ô chung!`
+      );
+    } else if (commonCells.length > 0) {
+      // Chỉ đi chung điểm đầu/cuối → vẫn an toàn
+      setAlertMessage("");
+    } else {
+      setAlertMessage("");
+    }
 
     // Gửi V1 đi ngay
     setV1({
@@ -158,6 +194,10 @@ export default function Home() {
       addLog("V1", v1.deliveries + 1, v1FullPath);
       addLog("V2", v2.deliveries + 1, v2FullPath);
     }, 1500);
+
+    // Thêm mới: Lưu logs
+    saveTripLog("V1", v1.startPos, v1.endPos, cargoAmounts.V1, v1FullPath);
+    saveTripLog("V2", v2.startPos, v2.endPos, cargoAmounts.V2, v2FullPath);
   };
 
   const updateVehicle = (id, field, value) => {
@@ -188,8 +228,16 @@ export default function Home() {
       if (path.length > 0) {
         const nextPos = path[0];
         const newPath = path.slice(1);
-        const status = newPath.length === 0 ? "waiting_at_end" : "moving";
-        setter((prev) => ({ ...prev, pos: nextPos, path: newPath, status }));
+        const status = newPath.length === 0 ? "idle" : "moving";
+
+        setter((prev) => ({
+          ...prev,
+          prevPos: prev.pos,   // <— LƯU VỊ TRÍ TRƯỚC ĐÓ
+          pos: nextPos,
+          path: newPath,
+          status,
+        }));
+        
       }
     };
 
@@ -211,8 +259,42 @@ export default function Home() {
   useEffect(() => {
     if (v1.status !== "moving" && v2.status !== "moving" && isRunningTogether) {
       setIsRunningTogether(false);
+
+      setCargoAmounts({ V1: "", V2: "" });
     }
   }, [v1.status, v2.status, isRunningTogether]);
+
+  // Thêm mới: Function lưu log vào localStorage và gọi BE để publish lên AWS IoT
+  const saveTripLog = async (id, startPos, endPos, cargo, path) => {
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
+    const logEntry = {
+      id,
+      route: `${startPos[0]},${startPos[1]} → ${endPos[0]},${endPos[1]}`,
+      cargo,
+      time: now,
+      path: path.map((p) => `${p[0]},${p[1]}`).join(" → "),
+    };
+
+    // Lưu localStorage cho frontend persist
+    const existingLogs = JSON.parse(localStorage.getItem("tripLogs") || "[]");
+    localStorage.setItem(
+      "tripLogs",
+      JSON.stringify([...existingLogs, logEntry])
+    );
+
+    // Gọi BE để publish lên AWS IoT
+    try {
+      await fetch("http://localhost:3000/car/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(logEntry),
+      });
+    } catch (err) {
+      console.error("Lỗi lưu log lên AWS IoT:", err);
+    }
+  };
 
   return (
     <div
@@ -251,11 +333,16 @@ export default function Home() {
         <UnifiedControlPanel
           v1={v1}
           v2={v2}
+          cargoAmounts={cargoAmounts}
+          setCargoAmounts={setCargoAmounts}
           onChange={updateVehicle}
           onStart={handleStart}
           onStartTogether={handleStartTogetherSafe}
         />
       </div>
+
+      {/* Thêm mới: Alert component */}
+      <CollisionAlert message={alertMessage} />
 
       <PageSwitchButtons />
 

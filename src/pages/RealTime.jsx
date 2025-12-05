@@ -1,8 +1,34 @@
 // src/pages/RealTime.jsx
+import { useState, useEffect } from "react";
+import MapGrid from "../components/MapGrid";
 import ClockDisplay from "../components/ClockDisplay";
 import PageSwitchButtons from "../components/PageSwitchButtons";
+import CollisionAlert from "../components/CollisionAlert";
 
 export default function RealTime() {
+  // Chỉ hiển thị 2 xe ở vị trí cố định (đang "chờ lệnh" hoặc đang hoạt động thật)
+  const [v1] = useState({
+    id: "V1",
+    pos: [1, 1],        // cố định ở kho
+    status: "idle",     // hoặc "moving" nếu muốn giả lập đang chạy thật
+  });
+
+  const [v2] = useState({
+    id: "V2",
+    pos: [1, 1],
+    status: "idle",
+  });
+
+  // Có thể thêm hiệu ứng nhấp nháy nhẹ để biết là "đang kết nối thời gian thực"
+  const [blink, setBlink] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setBlink(prev => !prev);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div
       style={{
@@ -11,9 +37,7 @@ export default function RealTime() {
         minHeight: "100vh",
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
+        position: "relative",
       }}
     >
       {/* Đồng hồ thời gian thực */}
@@ -22,12 +46,13 @@ export default function RealTime() {
       {/* Tiêu đề */}
       <h1
         style={{
-          fontSize: "3.8rem",
-          fontWeight: "bold",
+          textAlign: "center",
+          margin: "40px 0 20px",
           color: "#34d399",
-          margin: "60px 0 20px",
+          fontSize: "3.2rem",
+          fontWeight: "bold",
           textShadow: "0 0 40px rgba(52,211,153,0.5)",
-          letterSpacing: "2px",
+          letterSpacing: "1px",
         }}
       >
         CHẾ ĐỘ THỜI GIAN THỰC
@@ -35,38 +60,65 @@ export default function RealTime() {
 
       <p
         style={{
-          fontSize: "1.8rem",
+          textAlign: "center",
+          fontSize: "1.5rem",
           color: "#94a3b8",
-          marginBottom: 80,
-          fontStyle: "italic",
+          marginBottom: 40,
         }}
       >
-        Đang phát triển... Sắp ra mắt cực chất!
+        Đang kết nối với xe thật • Hiển thị vị trí live
       </p>
 
-      {/* Icon hoặc hiệu ứng chờ (tùy chọn thêm sau) */}
+      {/* Hiệu ứng nhấp nháy "LIVE" góc trên bên phải */}
       <div
         style={{
-          width: 120,
-          height: 120,
-          border: "8px solid #1e293b",
-          borderTop: "8px solid #34d399",
-          borderRadius: "50%",
-          animation: "spin 2s linear infinite",
-          marginBottom: 80,
+          position: "absolute",
+          top: 20,
+          right: 20,
+          background: blink ? "#ef4444" : "#991b1b",
+          color: "white",
+          padding: "8px 16px",
+          borderRadius: 30,
+          fontWeight: "bold",
+          fontSize: "0.9rem",
+          boxShadow: "0 0 20px rgba(239,68,68,0.6)",
+          transition: "all 0.4s",
+          zIndex: 100,
         }}
-      />
+      >
+        ● LIVE
+      </div>
 
-      {/* 2 nút chuyển trang */}
+      {/* Bản đồ + xe (không có control panel, không có log) */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 40 }}>
+        <MapGrid v1={v1} v2={v2} />
+      </div>
+
+      {/* Có thể thêm thông báo trạng thái xe thật ở đây sau */}
+      <div
+        style={{
+          textAlign: "center",
+          marginTop: 50,
+          padding: "20px",
+          background: "rgba(255,255,255,0.05)",
+          borderRadius: 12,
+          maxWidth: 600,
+          margin: "50px auto",
+        }}
+      >
+        <p style={{ fontSize: "1.3rem", color: "#94a3b8" }}>
+          Xe đang ở kho chờ lệnh giao hàng...
+        </p>
+        <p style={{ color: "#64748b", marginTop: 10 }}>
+          Khi có đơn hàng thật, vị trí xe sẽ cập nhật tự động mỗi giây
+        </p>
+      </div>
+
+      {/* Nút chuyển trang */}
       <PageSwitchButtons />
 
-      {/* CSS animation cho vòng tròn loading */}
-      <style jsx>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
+      {/* Alert nếu cần */}
+      <CollisionAlert message="" />
     </div>
   );
 }
