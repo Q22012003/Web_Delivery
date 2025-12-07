@@ -19,7 +19,7 @@ const buildConnection = async () => {
     .with_certificate_authority_from_path(process.env.AWS_IOT_CA_PATH)  // CA từ path (hoặc .with_certificate_authority(ca) nếu string)
     .with_endpoint(endpoint)
     .with_client_id(clientId)
-    .with_clean_session(false)
+    .with_clean_session(true)
     .with_keep_alive_seconds(30)  // Tùy chọn: Giữ kết nối ổn định
     .with_port(8883);  // Port mặc định cho MQTT over TLS
 

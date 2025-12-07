@@ -5,6 +5,7 @@ const express = require("express");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const { connectToAwsIot } = require("./services/awsIotService.js");
+//const { connectToAwsIot } = require("./src/services/awsIotService");
 
 const app = express();
 const server = http.createServer(app);
