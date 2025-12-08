@@ -132,16 +132,17 @@ export default function Home() {
       addLog("System", 0, "Có xe đang chạy! Vui lòng chờ hết chuyến.");
       return;
     }
-
+  
     setIsRunningTogether(true);
-
+  
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath || v1FullPath.length < 2) {
       alert("V1: Không tìm được đường!");
       setIsRunningTogether(false);
       return;
     }
-
+  
+    // Tạo reserved từ đường đi của V1
     const v1Reserved = new Set();
     for (let i = 1; i < v1FullPath.length; i++) {
       const pos = v1FullPath[i];
@@ -150,24 +151,31 @@ export default function Home() {
       v1Reserved.add(`${pos[0]},${pos[1]}@${t}`);
       v1Reserved.add(`${prev[0]},${prev[1]}->${pos[0]},${pos[1]}@${t}`);
     }
-
+  
+    // Kiểm tra xem V2 có cùng điểm xuất phát với V1 không
+    const sameStartPos = v2.startPos[0] === v1.startPos[0] && v2.startPos[1] === v1.startPos[1];
+  
+    // Nếu cùng điểm xuất phát → delay V2 để tránh chồng xe ban đầu
+    // Nếu khác điểm → cho chạy ngay (timeOffset = 0)
+    const v2TimeOffset = sameStartPos ? 17 : 0; // 17 ticks ~ 1700ms
+  
     const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
       v1Reserved,
-      17,
+      v2TimeOffset,        // <-- Đây là thay đổi chính
       v1FullPath,
       0,
       17
     );
-
+  
     if (!v2FullPath || v2FullPath.length < 2) {
       addLog("System", 0, "V2 không tìm được đường an toàn!");
       setIsRunningTogether(false);
       return;
     }
-
-    // V1 đi ngay
+  
+    // === V1 luôn chạy ngay ===
     setV1((prev) => ({
       ...prev,
       pos: v1.startPos,
@@ -176,8 +184,10 @@ export default function Home() {
       deliveries: prev.deliveries + 1,
       tripLog: v1FullPath,
     }));
-
-    // V2 đi sau 1700ms
+  
+    // === V2 chạy ngay hoặc delay tùy trường hợp ===
+    const v2DelayMs = sameStartPos ? 1700 : 0;
+  
     setTimeout(() => {
       setV2((prev) => ({
         ...prev,
@@ -187,13 +197,19 @@ export default function Home() {
         deliveries: prev.deliveries + 1,
         tripLog: v2FullPath,
       }));
-    }, 1700);
-
+    }, v2DelayMs);
+  
+    // Ghi log
     saveTripLog("V1", v1.startPos, v1.endPos, cargoAmounts.V1, v1FullPath);
-    saveTripLog("V2", v2.startPos, v2.endPos, cargoAmounts.V2, v2FullPath);
-
+    setTimeout(() => {
+      saveTripLog("V2", v2.startPos, v2.endPos, cargoAmounts.V2, v2FullPath);
+    }, v2DelayMs);
+  
     addLog("V1", v1.deliveries + 1, v1FullPath);
-    setTimeout(() => addLog("V2", v2.deliveries + 1, v2FullPath), 1800);
+    setTimeout(() => addLog("V2", v2.deliveries + 1, v2FullPath), v2DelayMs + 100);
+  
+    // Reset cargo sau khi xong
+    setCargoAmounts({ V1: "", V2: "" });
   };
 
   const updateVehicle = (id, field, value) => {
@@ -300,5 +316,3 @@ export default function Home() {
     </div>
   );
 }
-
-

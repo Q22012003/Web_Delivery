@@ -9,7 +9,7 @@ export default function Statistics() {
 
   useEffect(() => {
     let logs = JSON.parse(localStorage.getItem("tripLogs") || "[]");
-    logs = [...logs].reverse(); // tránh mutate array
+    logs = [...logs].reverse();
     setTripLogs(logs);
   }, []);
 
@@ -32,18 +32,18 @@ export default function Statistics() {
         LỊCH SỬ GIAO HÀNG
       </h2>
 
-      {/* NÚT XÓA DATA */}
       <button
         onClick={handleClear}
         style={{
           marginBottom: 20,
-          padding: "12px 20px",
+          padding: "10px 20px",
           background: "#ef4444",
-          borderRadius: 8,
+          borderRadius: 30,
           color: "white",
           cursor: "pointer",
           border: "none",
           fontWeight: "bold",
+          fontSize: "0.9rem",
         }}
       >
         XÓA TOÀN BỘ DỮ LIỆU TEST
@@ -69,83 +69,68 @@ export default function Statistics() {
             <tr style={{ borderBottom: "2px solid #334155" }}>
               <th style={{ padding: "12px", textAlign: "left" }}>Mã chuyến</th>
               <th style={{ padding: "12px", textAlign: "left" }}>Xe</th>
-              <th style={{ padding: "12px", textAlign: "left" }}>Tuyến đường</th>
-              <th style={{ padding: "12px", textAlign: "left" }}>Số lượng hàng</th>
+              <th style={{ padding: "12px", textAlign: "left" }}>
+                Tuyến đường
+              </th>
+              <th style={{ padding: "12px", textAlign: "left" }}>
+                Số lượng hàng
+              </th>
               <th style={{ padding: "12px", textAlign: "left" }}>Thời gian</th>
             </tr>
           </thead>
-
           <tbody>
             {displayedLogs.map((log, index) => (
               <tr key={index} style={{ borderBottom: "1px solid #334155" }}>
-                <td style={{ padding: "12px", color: "#60a5fa", fontWeight: "bold" }}>
+                <td
+                  style={{
+                    padding: "12px",
+                    color: "#60a5fa",
+                    fontWeight: "bold",
+                  }}
+                >
                   {log.deliveryId}
                 </td>
                 <td style={{ padding: "12px" }}>{log.vehicleId}</td>
                 <td style={{ padding: "12px" }}>{log.route}</td>
-                <td style={{ padding: "12px" }}>{log.cargo}</td>
+                <td style={{ padding: "12px" }}>{log.cargo || "Chưa nhập"}</td>
                 <td style={{ padding: "12px" }}>{log.time}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        {/* ==== SỐ TRANG HIỂN THỊ ==== */}
         {tripLogs.length > logsPerPage && (
-          <p
+          <div
             style={{
-              textAlign: "center",
-              marginTop: 20,
-              color: "#94a3b8",
-              fontSize: "1.1rem",
+              display: "flex",
+              justifyContent: "center",
+              marginTop: 40,
             }}
           >
-            Trang {pageNumber + 1} / {pageCount}
-          </p>
-        )}
-
-        {/* ==== PHÂN TRANG DƯỚI DÒNG TRANG X/Y ==== */}
-        {tripLogs.length > logsPerPage && (
-          <div style={{ marginTop: 20 }}>
-            <ReactPaginate
-              previousLabel={
-                <button
-                  style={{
-                    padding: "8px 16px",
-                    background: "#475569",
-                    borderRadius: 8,
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  Prev
-                </button>
-              }
-              nextLabel={
-                <button
-                  style={{
-                    padding: "8px 16px",
-                    background: "#475569",
-                    borderRadius: 8,
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  Next
-                </button>
-              }
-              pageCount={pageCount}
-              onPageChange={({ selected }) => setPageNumber(selected)}
-              containerClassName="pagination"
-              activeClassName="active"
-              pageRangeDisplayed={5}
-              marginPagesDisplayed={1}
-              className="flex justify-center gap-2"
-              pageLinkClassName="px-4 py-2 bg-slate-700 rounded hover:bg-slate-600"
-              activeLinkClassName="bg-blue-600 text-white"
-            />
+            <div
+              style={{
+                background: "rgba(30, 41, 59, 0.6)",
+                backdropFilter: "blur(6px)",
+                padding: "16px 32px",
+                borderRadius: "16px",
+                border: "1px solid #334155",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+              }}
+            >
+              <ReactPaginate
+                previousLabel="«"
+                nextLabel="»"
+                breakLabel="..."
+                pageCount={pageCount}
+                marginPagesDisplayed={2}
+                pageRangeDisplayed={4}
+                onPageChange={({ selected }) => setPageNumber(selected)}
+                forcePage={pageNumber}
+                containerClassName="pagination"
+                activeClassName="active"
+                disabledClassName="disabled"
+              />
+            </div>
           </div>
         )}
       </div>

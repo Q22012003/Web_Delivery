@@ -43,3 +43,63 @@ body {
   pointer-events: none;
   z-index: 1;
 }
+
+/* === PHÂN TRANG SIÊU ĐẸP - CHÍNH GIỮA, HIỆN ĐẠI === */
+.pagination {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.pagination li {
+  display: flex !important;
+}
+
+.pagination li a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #334155;
+  color: #e2e8f0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.pagination li a:hover:not(:disabled) {
+  background: #475569;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.pagination li.active a {
+  background: #3b82f6;
+  color: white !important;
+  font-weight: bold;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+}
+
+.pagination li.disabled a {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pagination li.previous a,
+.pagination li.next a {
+  font-size: 1.4rem;
+  font-weight: bold;
+  background: #475569;
+  width: 50px;
+}
+
+.pagination .break a {
+  background: transparent !important;
+  color: #94a3b8 !important;
+  font-weight: normal;
+}
