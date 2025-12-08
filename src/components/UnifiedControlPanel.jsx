@@ -25,9 +25,18 @@ export default function UnifiedControlPanel({
     [5, 5],
   ];
 
-  const isAnyMoving = v1.status === "moving" || v2.status === "moving";
+  const isAnyMoving = v1?.status === "moving" || v2?.status === "moving";
 
   const allDisabled = disableAll || isAnyMoving;
+
+  // ==== HELPER: SAFE JOIN để tránh crash nếu pos là undefined ====
+  const safeJoin = (posArray) => {
+    if (!Array.isArray(posArray) || posArray.length !== 2) {
+      console.warn("Invalid position array:", posArray); // Log để debug
+      return "1,1"; // Fallback mặc định
+    }
+    return posArray.join(",");
+  };
 
   // ==== BOX INPUT NHẬP SỐ HÀNG ====
   const renderCargoInput = (label, key) => (
@@ -60,10 +69,10 @@ export default function UnifiedControlPanel({
     </div>
   );
 
-  const renderSelect = (value, onChange, options) => (
+  const renderSelect = (value, onChangeFn, options) => (
     <select
       value={value}
-      onChange={onChange}
+      onChange={onChangeFn}
       disabled={allDisabled}
       style={styles.select}
     >
@@ -85,7 +94,7 @@ export default function UnifiedControlPanel({
 
         <label style={styles.label}>Xuất phát:</label>
         {renderSelect(
-          v1.startPos.join(","),
+          safeJoin(v1?.startPos || [1, 1]), // Fallback nếu thiếu
           (e) =>
             onChange("V1", "startPos", e.target.value.split(",").map(Number)),
           startPoints
@@ -93,7 +102,7 @@ export default function UnifiedControlPanel({
 
         <label style={styles.label}>Kết thúc:</label>
         {renderSelect(
-          v1.endPos.join(","),
+          safeJoin(v1?.endPos || [5, 3]), // Fallback nếu thiếu (dòng 88 fix ở đây!)
           (e) =>
             onChange("V1", "endPos", e.target.value.split(",").map(Number)),
           endPoints
@@ -106,7 +115,7 @@ export default function UnifiedControlPanel({
           disabled={allDisabled}
           style={{ ...styles.button, background: "#ff4444" }}
         >
-          {v1.status === "moving" ? "V1 đang chạy..." : "Bắt đầu V1"}
+          {v1?.status === "moving" ? "V1 đang chạy..." : "Bắt đầu V1"}
         </button>
       </div>
 
@@ -116,7 +125,7 @@ export default function UnifiedControlPanel({
 
         <label style={styles.label}>Xuất phát:</label>
         {renderSelect(
-          v2.startPos.join(","),
+          safeJoin(v2?.startPos || [1, 1]), // Fallback nếu thiếu
           (e) =>
             onChange("V2", "startPos", e.target.value.split(",").map(Number)),
           startPoints
@@ -124,7 +133,7 @@ export default function UnifiedControlPanel({
 
         <label style={styles.label}>Kết thúc:</label>
         {renderSelect(
-          v2.endPos.join(","),
+          safeJoin(v2?.endPos || [5, 5]), // Fallback nếu thiếu
           (e) =>
             onChange("V2", "endPos", e.target.value.split(",").map(Number)),
           endPoints
@@ -137,7 +146,7 @@ export default function UnifiedControlPanel({
           disabled={allDisabled}
           style={{ ...styles.button, background: "#00C853" }}
         >
-          {v2.status === "moving" ? "V2 đang chạy..." : "Bắt đầu V2"}
+          {v2?.status === "moving" ? "V2 đang chạy..." : "Bắt đầu V2"}
         </button>
       </div>
 
@@ -153,7 +162,7 @@ export default function UnifiedControlPanel({
   );
 }
 
-// ================= STYLES =================
+// ================= STYLES (giữ nguyên) =================
 const styles = {
   panel: {
     border: "2px solid #000",
