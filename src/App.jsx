@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import Statistics from "./pages/Statistics";
 import RealTime from "./pages/RealTime";
+import Alert from "./pages/Alert"; 
 import Sidebar from "./components/Sidebar";   // thêm dòng này
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/statistics" element={<Statistics />} />
             <Route path="/real-time" element={<RealTime />} />
+            <Route path="/alert" element={<Alert />} />
           </Routes>
         </div>
       </div>

@@ -4,10 +4,12 @@ import MapGrid from "../components/MapGrid";
 import ClockDisplay from "../components/ClockDisplay";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
-import UnifiedControlPanel from "../components/UnifiedControlPanel"; // Dùng chung với Home
+import UnifiedControlPanel from "../components/UnifiedControlPanel";
+import DeliveryLog from "../components/DeliveryLog"; // Thêm component này
 import io from "socket.io-client";
 
-const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+const SOCKET_SERVER_URL =
+  import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
 
 export default function RealTime() {
   const [vehicles, setVehicles] = useState({
@@ -20,7 +22,46 @@ export default function RealTime() {
   const [blink, setBlink] = useState(false);
   const socketRef = useRef(null);
 
-  // === Kết nối Socket.IO để nhận vị trí live từ xe thật ===
+  // === NHẬT KÝ GIAO HÀNG (giống Home) ===
+  const [logs, setLogs] = useState([]);
+  const [deliveryCounters, setDeliveryCounters] = useState({ V1: 0, V2: 0 });
+
+  // Tạo mã DH0001, DH0002...
+  const getNextDeliveryId = () => {
+    const counter =
+      parseInt(localStorage.getItem("realDeliveryCounter") || "0") + 1;
+    localStorage.setItem("realDeliveryCounter", counter);
+    return `DH${String(counter).padStart(4, "0")}`;
+  };
+
+  const addLog = (vehicleId, cargo, success = true) => {
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+
+    const deliveryId = getNextDeliveryId();
+    const statusText = success ? "Đã gửi lệnh giao hàng" : "Gửi lệnh thất bại";
+    const cargoText = cargo ? `${cargo} hàng` : "Không có hàng";
+
+    const message = `[${now}] ${vehicleId} | ${deliveryId} | ${cargoText} | ${statusText}`;
+
+    setLogs((prev) => [...prev, message]);
+
+    if (success && vehicleId) {
+      setDeliveryCounters((prev) => ({
+        ...prev,
+        [vehicleId]: prev[vehicleId] + 1,
+      }));
+    }
+  };
+
+  // === Kết nối Socket.IO ===
   useEffect(() => {
     socketRef.current = io(SOCKET_SERVER_URL);
 
@@ -29,8 +70,6 @@ export default function RealTime() {
     });
 
     socketRef.current.on("car:position", (data) => {
-      console.log("Vị trí thực tế nhận được:", data);
-
       const targetVehicle = data.device_id.includes("01") ? "V1" : "V2";
 
       setVehicles((prev) => ({
@@ -42,7 +81,6 @@ export default function RealTime() {
         },
       }));
 
-      // Tự động về idle sau 3s nếu không có cập nhật mới
       setTimeout(() => {
         setVehicles((prev) => ({
           ...prev,
@@ -62,68 +100,62 @@ export default function RealTime() {
     return () => clearInterval(interval);
   }, []);
 
-  // === GỬI LỆNH ĐIỀU KHIỂN XUỐNG XE THẬT QUA BACKEND ===
-  const sendCommandToCar = async (vehicleId, startPos, endPos, cargo) => {
+  // === GỬI LỆNH XUỐNG XE THẬT ===
+  const sendCommandToCar = async (vehicleId, cargo) => {
     const command = {
-      device_id: vehicleId === "V1" ? "car01" : "car02", // tùy theo định danh MCU của bạn
+      device_id: vehicleId === "V1" ? "car01" : "car02",
       command: "start_delivery",
-      start_pos: startPos,
-      end_pos: endPos,
       cargo: cargo || "0",
       timestamp: new Date().toISOString(),
     };
 
     try {
-      // Gửi qua HTTP (nếu backend có API)
       await fetch("http://localhost:5000/api/car/command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(command),
       });
 
-      // Gửi qua Socket.IO (nếu backend đang listen)
       socketRef.current?.emit("command:car", command);
 
+      // Ghi log thành công
+      addLog(vehicleId, cargo, true);
       setAlertMessage(`${vehicleId} đã nhận lệnh giao hàng!`);
-      setTimeout(() => setAlertMessage(""), 5000);
     } catch (err) {
       console.error("Lỗi gửi lệnh:", err);
-      setAlertMessage("Lỗi kết nối đến xe!");
+      addLog(vehicleId, cargo, false);
+      setAlertMessage("Lỗi kết nối đến xe thật!");
+    } finally {
       setTimeout(() => setAlertMessage(""), 5000);
     }
   };
 
-  // === XỬ LÝ NÚT BẮT ĐẦU RIÊNG LẺ ===
   const handleStart = (id) => {
-    const vehicle = vehicles[id];
     const cargo = cargoAmounts[id] || "0";
-
-    if (vehicle.status === "moving") {
+    if (vehicles[id].status === "moving") {
       setAlertMessage(`${id} đang di chuyển!`);
+      setTimeout(() => setAlertMessage(""), 4000);
       return;
     }
-
-    sendCommandToCar(id, vehicle.pos, vehicle.pos, cargo); // hoặc dùng startPos/endPos từ panel
+    sendCommandToCar(id, cargo);
   };
 
-  // === XỬ LÝ CHẠY CÙNG LÚC ===
   const handleStartTogether = () => {
+    const v1Cargo = cargoAmounts.V1 || "0";
+    const v2Cargo = cargoAmounts.V2 || "0";
+
     if (vehicles.V1.status === "moving" || vehicles.V2.status === "moving") {
       setAlertMessage("Có xe đang chạy! Vui lòng đợi.");
       setTimeout(() => setAlertMessage(""), 4000);
       return;
     }
 
-    // Gửi lệnh cho cả 2 xe
-    sendCommandToCar("V1", vehicles.V1.pos, vehicles.V1.pos, cargoAmounts.V1);
-    setTimeout(() => {
-      sendCommandToCar("V2", vehicles.V2.pos, vehicles.V2.pos, cargoAmounts.V2);
-    }, 800); // Delay nhẹ để tránh xung đột lệnh
+    sendCommandToCar("V1", v1Cargo);
+    setTimeout(() => sendCommandToCar("V2", v2Cargo), 800);
 
     setCargoAmounts({ V1: "", V2: "" });
   };
 
-  // === CẬP NHẬT VỊ TRÍ XUẤT PHÁT / KẾT THÚC (chỉ để hiển thị, không dùng để mô phỏng) ===
   const updateVehicle = (id, field, value) => {
     setVehicles((prev) => ({
       ...prev,
@@ -148,43 +180,37 @@ export default function RealTime() {
         style={{
           textAlign: "center",
           margin: "40px 0 20px",
-          color: "#34d399",
+          color: "#60a5fa",
           fontSize: "3.4rem",
           fontWeight: "bold",
-          textShadow: "0 0 40px rgba(52,211,153,0.5)",
+          textShadow: "0 0 0 40px rgba(52,211,153,0.5)",
         }}
       >
         CHẾ ĐỘ ĐIỀU KHIỂN THỰC TẾ
       </h1>
 
-      <p style={{ textAlign: "center", fontSize: "1.5rem", color: "#94a3b8", marginBottom: 40 }}>
+      <p
+        style={{
+          textAlign: "center",
+          fontSize: "1.5rem",
+          color: "#94a3b8",
+          marginBottom: 40,
+        }}
+      >
         Điều khiển xe thật trực tiếp • Vị trí cập nhật thời gian thực
       </p>
 
-      {/* LIVE Indicator */}
       <div
         style={{
-          position: "absolute",
-          top: 20,
-          right: 20,
-          background: blink ? "#ef4444" : "#991b1b",
-          color: "white",
-          padding: "12px 28px",
-          borderRadius: 30,
-          fontWeight: "bold",
-          fontSize: "1.1rem",
-          boxShadow: "0 0 30px rgba(239,68,68,0.8)",
-          animation: blink ? "pulse 1.5s infinite" : "none",
+          display: "flex",
+          gap: 60,
+          justifyContent: "center",
+          flexWrap: "wrap",
+          marginTop: 30,
         }}
       >
-        ● LIVE
-      </div>
-
-      {/* Layout: Bản đồ + Bảng điều khiển */}
-      <div style={{ display: "flex", gap: 60, justifyContent: "center", flexWrap: "wrap", marginTop: 30 }}>
         <MapGrid v1={vehicles.V1} v2={vehicles.V2} />
 
-        {/* Dùng lại UnifiedControlPanel đẹp như trang Home */}
         <UnifiedControlPanel
           v1={vehicles.V1}
           v2={vehicles.V2}
@@ -193,32 +219,16 @@ export default function RealTime() {
           onChange={updateVehicle}
           onStart={handleStart}
           onStartTogether={handleStartTogether}
-          disableAll={false} // Có thể thêm logic kiểm tra kết nối nếu cần
+          disableAll={false}
         />
       </div>
 
-      {/* Trạng thái hiện tại */}
-      <div
-        style={{
-          textAlign: "center",
-          marginTop: 50,
-          padding: "25px",
-          background: "rgba(52,211,153,0.15)",
-          borderRadius: 16,
-          maxWidth: 800,
-          margin: "50px auto",
-          border: "1px solid rgba(52,211,153,0.3)",
-        }}
-      >
-        <p style={{ fontSize: "1.4rem", color: "#94f0c5" }}>
-          Trạng thái xe thật (cập nhật live)
-        </p>
-        <p style={{ color: "#cbd5e1", marginTop: 10 }}>
-          V1: [{vehicles.V1.pos.join(", ")}] → {vehicles.V1.status === "moving" ? "Đang di chuyển" : "Dừng"}
-          <br />
-          V2: [{vehicles.V2.pos.join(", ")}] → {vehicles.V2.status === "moving" ? "Đang di chuyển" : "Dừng"}
-        </p>
-      </div>
+      {/* NHẬT KÝ GIAO HÀNG THỰC TẾ */}
+      <DeliveryLog
+        logs={logs}
+        v1Deliveries={deliveryCounters.V1}
+        v2Deliveries={deliveryCounters.V2}
+      />
 
       <CollisionAlert message={alertMessage} />
       <PageSwitchButtons />

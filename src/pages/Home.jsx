@@ -87,17 +87,6 @@ export default function Home() {
     const existing = JSON.parse(localStorage.getItem("tripLogs") || "[]");
     localStorage.setItem("tripLogs", JSON.stringify([...existing, logEntry]));
 
-    // Gửi backend với error handling
-    try {
-      await fetch("http://localhost:3000/car/log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(logEntry),
-      });
-    } catch (error) {
-      console.error("Lỗi gửi log đến backend:", error);
-      // Optional: addLog("System", 0, "Lỗi kết nối backend!");
-    }
   };
 
   const handleStart = (id, delay = 0) => {

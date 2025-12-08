@@ -90,7 +90,7 @@ export default function UnifiedControlPanel({
 
       {/* ==== XE V1 ==== */}
       <div style={styles.vehicleBox}>
-        <h4 style={{ ...styles.vehicleTitle, color: "#ff4444" }}>XE V1</h4>
+        <h4 style={styles.vehicleTitle}>XE V1</h4>
 
         <label style={styles.label}>Xuất phát:</label>
         {renderSelect(
@@ -113,7 +113,7 @@ export default function UnifiedControlPanel({
         <button
           onClick={() => onStart("V1")}
           disabled={allDisabled}
-          style={{ ...styles.button, background: "#ff4444" }}
+          style={styles.button}
         >
           {v1?.status === "moving" ? "V1 đang chạy..." : "Bắt đầu V1"}
         </button>
@@ -121,7 +121,7 @@ export default function UnifiedControlPanel({
 
       {/* ==== XE V2 ==== */}
       <div style={styles.vehicleBox}>
-        <h4 style={{ ...styles.vehicleTitle, color: "#00C853" }}>XE V2</h4>
+        <h4 style={styles.vehicleTitle}>XE V2</h4>
 
         <label style={styles.label}>Xuất phát:</label>
         {renderSelect(
@@ -144,7 +144,7 @@ export default function UnifiedControlPanel({
         <button
           onClick={() => onStart("V2")}
           disabled={allDisabled}
-          style={{ ...styles.button, background: "#00C853" }}
+          style={styles.button}
         >
           {v2?.status === "moving" ? "V2 đang chạy..." : "Bắt đầu V2"}
         </button>
@@ -177,7 +177,7 @@ const styles = {
   },
   title: {
     margin: 0,
-    color: "#1976d2",
+    color: "#1565c0",
     textAlign: "center",
     fontSize: "1.3rem",
     fontWeight: "bold",
@@ -189,6 +189,7 @@ const styles = {
   vehicleTitle: {
     margin: "0 0 8px",
     fontWeight: "bold",
+    color: "#1565c0",
   },
   label: {
     fontSize: 13,
@@ -204,6 +205,7 @@ const styles = {
     border: "1px solid #ccc",
     fontSize: 13,
     marginBottom: 6,
+    color: "#1565c0",
   },
   input: {
     width: "70%",
@@ -212,6 +214,7 @@ const styles = {
     borderRadius: 4,
     border: "1px solid #aaa",
     outline: "none",
+    color: "#1565c0",
   },
   button: {
     width: "100%",
@@ -222,6 +225,7 @@ const styles = {
     borderRadius: 6,
     fontWeight: "bold",
     cursor: "pointer",
+    background: "#1976d2",
   },
   togetherBtn: {
     width: "100%",
@@ -229,7 +233,7 @@ const styles = {
     borderRadius: 8,
     border: "none",
     fontWeight: "bold",
-    background: "linear-gradient(135deg, #1976d2, #42a5f5)",
+    background: "#1976d2",
     color: "#fff",
   },
 };

@@ -1,35 +1,35 @@
-// src/pages/Statistics.jsx
+// src/pages/Alert.jsx
 import { useState, useEffect } from "react";
 import ReactPaginate from "react-paginate";
 
-export default function Statistics() {
-  const [tripLogs, setTripLogs] = useState([]);
+export default function Alert() {
+  const [alertLogs, setAlertLogs] = useState([]);
   const [pageNumber, setPageNumber] = useState(0);
   const logsPerPage = 15;
 
   useEffect(() => {
-    let logs = JSON.parse(localStorage.getItem("tripLogs") || "[]");
+    let logs = JSON.parse(localStorage.getItem("alertLogs") || "[]");
     logs = [...logs].reverse();
-    setTripLogs(logs);
+    setAlertLogs(logs);
   }, []);
 
-  const pageCount = Math.ceil(tripLogs.length / logsPerPage);
+  const pageCount = Math.ceil(alertLogs.length / logsPerPage);
 
-  const displayedLogs = tripLogs.slice(
+  const displayedLogs = alertLogs.slice(
     pageNumber * logsPerPage,
     (pageNumber + 1) * logsPerPage
   );
 
   const handleClear = () => {
-    localStorage.clear();
-    setTripLogs([]);
+    localStorage.removeItem("alertLogs");
+    setAlertLogs([]);
     setPageNumber(0);
   };
 
   return (
     <div style={{ marginLeft: 300, padding: 40 }}>
-      <h2 style={{ color: "#60a5fa", fontSize: "2.5rem", marginBottom: 30 }}>
-        LỊCH SỬ GIAO HÀNG
+      <h2 style={{ color: "#f87171", fontSize: "2.5rem", marginBottom: 30 }}>
+        CẢNH BÁO
       </h2>
 
       <button
@@ -46,7 +46,7 @@ export default function Statistics() {
           fontSize: "0.9rem",
         }}
       >
-        XÓA TOÀN BỘ DỮ LIỆU TEST
+        XÓA TẤT CẢ CẢNH BÁO
       </button>
 
       <div
@@ -66,40 +66,31 @@ export default function Statistics() {
           }}
         >
           <thead>
-            <tr style={{ borderBottom: "2px solid #60a5fa" }}>
-              <th style={{ padding: "12px", textAlign: "left" }}>Mã chuyến</th>
+            <tr style={{ borderBottom: "2px solid #334155" }}>
+              <th style={{ padding: "12px", textAlign: "left" }}>Mã cảnh báo</th>
               <th style={{ padding: "12px", textAlign: "left" }}>Xe</th>
-              <th style={{ padding: "12px", textAlign: "left" }}>
-                Tuyến đường
-              </th>
-              <th style={{ padding: "12px", textAlign: "left" }}>
-                Số lượng hàng
-              </th>
+              <th style={{ padding: "12px", textAlign: "left" }}>Loại cảnh báo</th>
+              <th style={{ padding: "12px", textAlign: "left" }}>Mô tả</th>
               <th style={{ padding: "12px", textAlign: "left" }}>Thời gian</th>
             </tr>
           </thead>
+
           <tbody>
-            {displayedLogs.map((log, index) => (
-              <tr key={index} style={{ borderBottom: "1px solid #60a5fa" }}>
-                <td
-                  style={{
-                    padding: "12px",
-                    color: "#60a5fa",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {log.deliveryId}
+            {displayedLogs.map((log, idx) => (
+              <tr key={idx} style={{ borderBottom: "1px solid #334155" }}>
+                <td style={{ padding: "12px", color: "#fca5a5", fontWeight: "bold" }}>
+                  {log.alertId}
                 </td>
                 <td style={{ padding: "12px" }}>{log.vehicleId}</td>
-                <td style={{ padding: "12px" }}>{log.route}</td>
-                <td style={{ padding: "12px" }}>{log.cargo || "Chưa nhập"}</td>
+                <td style={{ padding: "12px" }}>{log.type}</td>
+                <td style={{ padding: "12px" }}>{log.description}</td>
                 <td style={{ padding: "12px" }}>{log.time}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        {tripLogs.length > logsPerPage && (
+        {alertLogs.length > logsPerPage && (
           <div
             style={{
               display: "flex",

@@ -9,6 +9,7 @@ export default function Sidebar() {
     { path: "/", label: "Trang chủ" },
     { path: "/statistics", label: "Lịch sử giao hàng" },
     { path: "/real-time", label: "Thời gian thực" },
+    { path: "/alert", label: "Cảnh báo" },
   ];
 
   const isActive = (path) => location.pathname === path;
@@ -37,12 +38,17 @@ export default function Sidebar() {
               width: "100%",
               padding: "16px 20px",
               marginBottom: 10,
+
+              // ⭐ nền mặc định + active
               background: isActive(item.path)
-                ? "rgba(96, 165, 250, 0.2)"
-                : "transparent",
+                ? "rgba(96, 165, 250, 0.25)"
+                : "rgba(96, 165, 250, 0.08)",
+
+              // ⭐ viền mặc định + active
               border: isActive(item.path)
                 ? "1px solid #60a5fa"
-                : "1px solid transparent",
+                : "1px solid rgba(96,165,250,0.3)",
+
               borderRadius: 12,
               color: "#e2e8f0",
               fontSize: "1.1rem",
@@ -53,13 +59,17 @@ export default function Sidebar() {
               transition: "all 0.3s",
               cursor: "pointer",
             }}
+
+            // ⭐ hover hiệu ứng
             onMouseOver={(e) =>
-              !isActive(item.path) &&
-              (e.target.style.background = "rgba(96,165,250,0.1)")
+              (e.target.style.background = isActive(item.path)
+                ? "rgba(96,165,250,0.3)"
+                : "rgba(96,165,250,0.15)")
             }
             onMouseOut={(e) =>
-              !isActive(item.path) &&
-              (e.target.style.background = "transparent")
+              (e.target.style.background = isActive(item.path)
+                ? "rgba(96,165,250,0.25)"
+                : "rgba(96,165,250,0.08)")
             }
           >
             <span style={{ fontSize: "1.4rem" }}></span>
