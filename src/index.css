@@ -8,12 +8,14 @@ body {
 
 .map-container {
   width: 70vw;
-  height: 70vw; /* để map luôn là hình vuông */
+  height: 70vw;
   position: relative;
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   grid-template-rows: repeat(6, 1fr);
-  border: 12px solid #1a1a1a;
+  /* VIỀN KHUNG: Đổi sang màu đen */
+  border: 12px solid #000000; /* <-- Thay đổi ở đây */
+  /* Nếu bạn muốn giữ nền gradient cũ thì bỏ comment dòng dưới, còn muốn nền trắng thì sửa thành background: #ffffff; */
   background: linear-gradient(135deg, #2c3e50 0%, #1a1a252f 100%);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6),
     inset 0 0 60px rgba(255, 255, 255, 0.05);
@@ -25,7 +27,8 @@ body {
   width: 166.66px;
   height: 166.66px;
   box-sizing: border-box;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  /* VIỀN Ô LƯỚI: Đổi sang màu đen */
+  border: 2px solid #000000; /* <-- Thay đổi ở đây */
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;

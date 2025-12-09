@@ -43,7 +43,7 @@ export default function Home() {
 
   const [logs, setLogs] = useState([]);
 
-  // === TẠO MÃ CHUYẾN HÀNG TỰ ĐỘNG (DH0001, DH0002...) ===
+  // === HÀM HỖ TRỢ ===
   const getNextDeliveryId = () => {
     const counter = parseInt(localStorage.getItem("deliveryCounter") || "0") + 1;
     localStorage.setItem("deliveryCounter", counter);
@@ -86,7 +86,6 @@ export default function Home() {
 
     const existing = JSON.parse(localStorage.getItem("tripLogs") || "[]");
     localStorage.setItem("tripLogs", JSON.stringify([...existing, logEntry]));
-
   };
 
   const handleStart = (id, delay = 0) => {
@@ -112,7 +111,7 @@ export default function Home() {
       }));
 
       saveTripLog(id, vehicle.startPos, vehicle.endPos, cargoAmounts[id], fullPath);
-      addLog(id, vehicle.deliveries + 1, fullPath); // Sửa: dùng vehicle.deliveries + 1
+      addLog(id, vehicle.deliveries + 1, fullPath); 
     }, delay);
   };
 
@@ -121,17 +120,13 @@ export default function Home() {
       addLog("System", 0, "Có xe đang chạy! Vui lòng chờ hết chuyến.");
       return;
     }
-  
     setIsRunningTogether(true);
-  
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath || v1FullPath.length < 2) {
       alert("V1: Không tìm được đường!");
       setIsRunningTogether(false);
       return;
     }
-  
-    // Tạo reserved từ đường đi của V1
     const v1Reserved = new Set();
     for (let i = 1; i < v1FullPath.length; i++) {
       const pos = v1FullPath[i];
@@ -140,31 +135,22 @@ export default function Home() {
       v1Reserved.add(`${pos[0]},${pos[1]}@${t}`);
       v1Reserved.add(`${prev[0]},${prev[1]}->${pos[0]},${pos[1]}@${t}`);
     }
-  
-    // Kiểm tra xem V2 có cùng điểm xuất phát với V1 không
     const sameStartPos = v2.startPos[0] === v1.startPos[0] && v2.startPos[1] === v1.startPos[1];
-  
-    // Nếu cùng điểm xuất phát → delay V2 để tránh chồng xe ban đầu
-    // Nếu khác điểm → cho chạy ngay (timeOffset = 0)
-    const v2TimeOffset = sameStartPos ? 17 : 0; // 17 ticks ~ 1700ms
-  
+    const v2TimeOffset = sameStartPos ? 17 : 0; 
     const v2FullPath = findSafePathWithReturn(
       v2.startPos,
       v2.endPos,
       v1Reserved,
-      v2TimeOffset,        // <-- Đây là thay đổi chính
+      v2TimeOffset,
       v1FullPath,
       0,
       17
     );
-  
     if (!v2FullPath || v2FullPath.length < 2) {
       addLog("System", 0, "V2 không tìm được đường an toàn!");
       setIsRunningTogether(false);
       return;
     }
-  
-    // === V1 luôn chạy ngay ===
     setV1((prev) => ({
       ...prev,
       pos: v1.startPos,
@@ -173,10 +159,7 @@ export default function Home() {
       deliveries: prev.deliveries + 1,
       tripLog: v1FullPath,
     }));
-  
-    // === V2 chạy ngay hoặc delay tùy trường hợp ===
     const v2DelayMs = sameStartPos ? 1700 : 0;
-  
     setTimeout(() => {
       setV2((prev) => ({
         ...prev,
@@ -187,17 +170,12 @@ export default function Home() {
         tripLog: v2FullPath,
       }));
     }, v2DelayMs);
-  
-    // Ghi log
     saveTripLog("V1", v1.startPos, v1.endPos, cargoAmounts.V1, v1FullPath);
     setTimeout(() => {
       saveTripLog("V2", v2.startPos, v2.endPos, cargoAmounts.V2, v2FullPath);
     }, v2DelayMs);
-  
     addLog("V1", v1.deliveries + 1, v1FullPath);
     setTimeout(() => addLog("V2", v2.deliveries + 1, v2FullPath), v2DelayMs + 100);
-  
-    // Reset cargo sau khi xong
     setCargoAmounts({ V1: "", V2: "" });
   };
 
@@ -216,7 +194,6 @@ export default function Home() {
     });
   };
 
-  // === DI CHUYỂN XE (SỬA SYNTAX LỖI ITERABLE) ===
   useEffect(() => {
     const interval = setInterval(() => {
       [[v1, setV1], [v2, setV2]].forEach(([vehicle, setVehicle]) => {
@@ -235,13 +212,11 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [v1.path, v2.path]);
 
-  // === FIX: CẢNH BÁO VA CHẠM MỖI LẦN CHẠY CÙNG NHAU ===
   useEffect(() => {
     if (v1.tripLog && v2.tripLog) {
       const v1Cells = new Set(v1.tripLog.map((p) => `${p[0]},${p[1]}`));
       const v2Cells = new Set(v2.tripLog.map((p) => `${p[0]},${p[1]}`));
       const common = [...v1Cells].filter((c) => v2Cells.has(c));
-
       if (common.length > 2) {
         setAlertMessage(`CẢNH BÁO VA CHẠM! Trùng ${common.length - 2} ô chung (ngoài đầu/cuối)!`);
       } else {
@@ -250,7 +225,6 @@ export default function Home() {
     }
   }, [v1.tripLog, v2.tripLog]);
 
-  // Reset khi xong
   useEffect(() => {
     if (v1.status === "idle" && v2.status === "idle" && isRunningTogether) {
       setIsRunningTogether(false);
@@ -258,50 +232,94 @@ export default function Home() {
     }
   }, [v1.status, v2.status, isRunningTogether]);
 
-  return (
-    <div
+// src/pages/Home.jsx
+// ... (GIỮ NGUYÊN CODE LOGIC PHÍA TRÊN)
+
+// Sửa phần return:
+
+return (
+  <div
+    style={{
+      padding: "30px 40px",
+      background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+      minHeight: "100vh",
+      fontFamily: "Segoe UI, sans-serif",
+      color: "#e2e8f0",
+      overflowX: "hidden"
+    }}
+  >
+    <ClockDisplay />
+
+    <h1
       style={{
-        padding: "30px 40px",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
-        minHeight: "100vh",
-        fontFamily: "Segoe UI, sans-serif",
-        color: "#e2e8f0",
+        textAlign: "center",
+        margin: "20px 0 40px",
+        color: "#60a5fa",
+        fontSize: "3rem",
+        fontWeight: "bold",
+        textShadow: "0 0 30px rgba(96,165,250,0.6)",
       }}
     >
-      <ClockDisplay />
+      XE GIAO HÀNG TỰ ĐỘNG
+    </h1>
 
-      <h1
-        style={{
-          textAlign: "center",
-          margin: "20px 0 40px",
-          color: "#60a5fa",
-          fontSize: "3rem",
-          fontWeight: "bold",
-          textShadow: "0 0 30px rgba(96,165,250,0.6)",
-        }}
-      >
-        XE GIAO HÀNG TỰ ĐỘNG
-      </h1>
-
-      <div style={{ display: "flex", gap: 60, justifyContent: "center", flexWrap: "wrap" }}>
+    {/* --- LAYOUT CHÍNH --- */}
+    <div 
+      style={{ 
+        display: "flex", 
+        gap: 30, 
+        justifyContent: "center", 
+        alignItems: "stretch", // Giữ chiều cao bằng nhau
+        flexWrap: "wrap" 
+      }}
+    >
+      {/* CỘT 1: BẢN ĐỒ */}
+      <div style={{ flex: "0 0 auto" }}>
         <MapGrid v1={v1} v2={v2} />
-        <UnifiedControlPanel
-          v1={v1}
-          v2={v2}
-          cargoAmounts={cargoAmounts}
-          setCargoAmounts={setCargoAmounts}
-          onChange={updateVehicle}
-          onStart={handleStart}
-          onStartTogether={handleStartTogetherSafe}
-        />
       </div>
 
-      <CollisionAlert message={alertMessage} />
+      {/* CỘT 2: CONTROLS & LOG */}
+      <div style={{ 
+          display: "flex", 
+          flexDirection: "row",
+          gap: 25, // Tăng khoảng cách giữa 2 bảng một chút cho thoáng
+      }}>
+        
+        {/* Nhóm A: Bảng điều khiển */}
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+          <UnifiedControlPanel
+            v1={v1}
+            v2={v2}
+            cargoAmounts={cargoAmounts}
+            setCargoAmounts={setCargoAmounts}
+            onChange={updateVehicle}
+            onStart={handleStart}
+            onStartTogether={handleStartTogetherSafe}
+          />
+          
+          {/* Cảnh báo va chạm sẽ nằm ngay dưới bảng điều khiển */}
+          {alertMessage && (
+             <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
+                <CollisionAlert message={alertMessage} />
+             </div>
+          )}
+        </div>
 
-      <DeliveryLog logs={logs} v1Deliveries={v1.deliveries} v2Deliveries={v2.deliveries} />
+        {/* Nhóm B: Nhật ký */}
+        <div>
+           <DeliveryLog 
+             logs={logs} 
+             v1Deliveries={v1.deliveries} 
+             v2Deliveries={v2.deliveries} 
+           />
+        </div>
+      </div>
 
-      {/* Nút chuyển qua trang Real-time */}
+    </div>
+
+    <div style={{ marginTop: 40 }}>
       <PageSwitchButtons />
     </div>
-  );
+  </div>
+);
 }

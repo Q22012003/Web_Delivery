@@ -7,13 +7,13 @@ import CollisionAlert from "../components/CollisionAlert";
 import UnifiedControlPanel from "../components/UnifiedControlPanel";
 import DeliveryLog from "../components/DeliveryLog"; 
 import io from "socket.io-client";
-// THÊM: Import A* để tính toán lộ trình trước khi gửi
 import { aStarSearch } from "../utils/aStar";
 
 const SOCKET_SERVER_URL =
   import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
 
 export default function RealTime() {
+  // === LOGIC GIỮ NGUYÊN ===
   const [vehicles, setVehicles] = useState({
     V1: { id: "V1", pos: [1, 1], status: "idle" },
     V2: { id: "V2", pos: [1, 1], status: "idle" },
@@ -67,20 +67,13 @@ export default function RealTime() {
     return () => clearInterval(interval);
   }, []);
 
-  // === GỬI LỆNH LỘ TRÌNH (MODIFIED) ===
   const sendPathToBackend = async (vehicleId, cargo, customStart = null, customGoal = null) => {
-    
-    // 1. Ưu tiên lấy điểm từ input, nếu không có mới lấy vị trí hiện tại của xe
     const startPos = customStart || vehicles[vehicleId].pos;
-    const goalPos = customGoal || [5, 3]; // Mặc định hoặc lấy từ input
+    const goalPos = customGoal || [5, 3]; 
 
     console.log(`Tính A* từ [${startPos}] đến [${goalPos}]`);
 
-    // 2. Tính A*
     const rawPath = aStarSearch(startPos, goalPos);
-    
-    // 3. QUAN TRỌNG: Loại bỏ điểm đầu tiên (Start) khỏi danh sách gửi đi
-    // Vì A* trả về [[1,2], [1,3]...] -> Nếu gửi cả [1,2] thì xe đang ở 1.2 sẽ nhận lệnh đi tới 1.2 (vô nghĩa)
     const pathToSend = rawPath.length > 0 ? rawPath.slice(1) : [];
 
     if (pathToSend.length === 0) {
@@ -88,7 +81,6 @@ export default function RealTime() {
       return;
     }
 
-    // Convert sang dạng string ["1,2", "1,3"...]
     const formattedPath = pathToSend.map(p => `${p[0]},${p[1]}`);
 
     try {
@@ -114,16 +106,18 @@ export default function RealTime() {
   };
 
   const handleStart = (id, startInput, endInput) => {
-    // startInput ví dụ: "1,2" -> cần convert sang mảng [1, 2]
-    // endInput ví dụ: "5,3" -> cần convert sang mảng [5, 3]
-
     const parsePos = (str) => {
         if (!str) return null;
-        return str.split(',').map(Number);
+        // Kiểm tra xem input là mảng hay string (vì component UnifiedControlPanel trả về string JSON)
+        if (Array.isArray(str)) return str; 
+        if (typeof str === 'string' && str.includes('[')) return JSON.parse(str); 
+        // Fallback cũ nếu cần
+        return str ? str.split(',').map(Number) : null;
     };
 
-    const sPos = parsePos(startInput); // Ví dụ bạn nhập "1,2"
-    const ePos = parsePos(endInput);   // Ví dụ bạn nhập "5,3"
+    // UnifiedControlPanel mới trả về object hoặc array, cần đảm bảo đúng format
+    const sPos = parsePos(startInput) || vehicles[id].pos;
+    const ePos = parsePos(endInput) || [5, 3];
     
     const cargo = cargoAmounts[id] || "0";
 
@@ -131,8 +125,6 @@ export default function RealTime() {
       setAlertMessage(`${id} đang di chuyển!`);
       return;
     }
-
-    // Gọi hàm gửi với tọa độ tùy chỉnh
     sendPathToBackend(id, cargo, sPos, ePos);
   };
 
@@ -144,7 +136,7 @@ export default function RealTime() {
       return;
     }
     sendPathToBackend("V1", v1Cargo);
-    setTimeout(() => sendPathToBackend("V2", v2Cargo), 1000); // Delay xe 2 chút
+    setTimeout(() => sendPathToBackend("V2", v2Cargo), 1000);
     setCargoAmounts({ V1: "", V2: "" });
   };
 
@@ -155,43 +147,80 @@ export default function RealTime() {
     }));
   };
 
+  // === PHẦN LAYOUT UI ĐƯỢC CẬP NHẬT ===
   return (
     <div style={{
-        padding: 30,
+        padding: "30px 40px",
         background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
         minHeight: "100vh",
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
-        position: "relative",
+        overflowX: "hidden"
       }}>
       <ClockDisplay />
+      
       <h1 style={{
-          textAlign: "center", margin: "40px 0 20px", color: "#60a5fa",
-          fontSize: "3.4rem", fontWeight: "bold", textShadow: "0 0 0 40px rgba(52,211,153,0.5)",
+          textAlign: "center", margin: "20px 0 40px", color: "#60a5fa",
+          fontSize: "3rem", fontWeight: "bold", textShadow: "0 0 30px rgba(96,165,250,0.6)",
         }}>
-        CHẾ ĐỘ ĐIỀU KHIỂN THỰC TẾ
+        CHẾ ĐỘ THỰC TẾ
       </h1>
-      <p style={{ textAlign: "center", fontSize: "1.5rem", color: "#94a3b8", marginBottom: 40 }}>
-        Điều khiển xe thật trực tiếp • Vị trí cập nhật thời gian thực
-      </p>
 
-      <div style={{ display: "flex", gap: 60, justifyContent: "center", flexWrap: "wrap", marginTop: 30 }}>
-        <MapGrid v1={vehicles.V1} v2={vehicles.V2} />
-        <UnifiedControlPanel
-          v1={vehicles.V1}
-          v2={vehicles.V2}
-          cargoAmounts={cargoAmounts}
-          setCargoAmounts={setCargoAmounts}
-          onChange={updateVehicle}
-          onStart={handleStart}
-          onStartTogether={handleStartTogether}
-          disableAll={false}
-        />
+      {/* --- COPY CẤU TRÚC LAYOUT TỪ HOME.JSX --- */}
+      <div 
+        style={{ 
+          display: "flex", 
+          gap: 30, 
+          justifyContent: "center", 
+          alignItems: "stretch", // Quan trọng: Kéo giãn chiều cao bằng nhau
+          flexWrap: "wrap" 
+        }}
+      >
+        {/* CỘT 1: BẢN ĐỒ */}
+        <div style={{ flex: "0 0 auto" }}>
+          <MapGrid v1={vehicles.V1} v2={vehicles.V2} />
+        </div>
+
+        {/* CỘT 2: CONTROLS & LOG (Xếp ngang) */}
+        <div style={{ 
+            display: "flex", 
+            flexDirection: "row",
+            gap: 25, 
+        }}>
+           {/* Nhóm A: Bảng điều khiển + Alert */}
+           <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <UnifiedControlPanel
+                v1={vehicles.V1}
+                v2={vehicles.V2}
+                cargoAmounts={cargoAmounts}
+                setCargoAmounts={setCargoAmounts}
+                onChange={updateVehicle}
+                onStart={handleStart}
+                onStartTogether={handleStartTogether}
+              />
+              
+              {/* Alert nằm ngay dưới bảng điều khiển giống Home */}
+              {alertMessage && (
+                 <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
+                    <CollisionAlert message={alertMessage} />
+                 </div>
+              )}
+           </div>
+
+           {/* Nhóm B: Nhật ký */}
+           <div>
+              <DeliveryLog 
+                logs={logs} 
+                v1Deliveries={deliveryCounters.V1} 
+                v2Deliveries={deliveryCounters.V2} 
+              />
+           </div>
+        </div>
       </div>
 
-      <DeliveryLog logs={logs} v1Deliveries={deliveryCounters.V1} v2Deliveries={deliveryCounters.V2} />
-      <CollisionAlert message={alertMessage} />
-      <PageSwitchButtons />
+      <div style={{ marginTop: 40 }}>
+        <PageSwitchButtons />
+      </div>
     </div>
   );
 }

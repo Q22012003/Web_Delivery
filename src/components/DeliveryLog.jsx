@@ -1,53 +1,93 @@
+// src/components/DeliveryLog.jsx
+import React from 'react';
+
 export default function DeliveryLog({ logs, v1Deliveries, v2Deliveries }) {
   return (
     <div
       style={{
-        marginTop: 50,
-        background: "#1e293b",
-        padding: 25,
-        borderRadius: 16,
-        maxWidth: 1100,
-        margin: "50px auto",
-        boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
+        // === GIAO DIỆN TRẮNG (LIGHT MODE) ===
+        background: "#ffffff", 
+        padding: "30px",
+        borderRadius: "20px",
+        
+        // Kích thước & Layout (Giữ nguyên để khớp với Bảng điều khiển)
+        minWidth: "420px", 
+        flex: 1,
+        maxWidth: "500px",
+
+        boxSizing: "border-box",
+        // Bóng đổ mềm mại giống Bảng điều khiển
+        boxShadow: "0 15px 35px -5px rgba(0, 0, 0, 0.15)", 
+        // border: "1px solid #e2e8f0", // Có thể thêm viền mờ hoặc bỏ tùy thích
+        
+        display: "flex",       
+        flexDirection: "column",
+        height: "100%" 
       }}
     >
       <h2
         style={{
-          color: "#60a5fa",        // 🔵 Màu đồng bộ với header chính
-          marginBottom: 15,
-          fontSize: "1.8rem",
-          fontWeight: "bold",
-          textShadow: "0 0 10px rgba(96,165,250,0.5)",
+          // Chữ tiêu đề màu tối
+          color: "#1e293b", 
+          marginBottom: 20,
+          fontSize: "1.4rem",
+          fontWeight: "800",
+          textAlign: "center",
+          textTransform: "uppercase",
+          // Gạch chân màu xám nhạt
+          borderBottom: "2px solid #f1f5f9", 
+          paddingBottom: "15px",
+          letterSpacing: "1px"
         }}
       >
-        NHẬT KÝ GIAO HÀNG
+        NHẬT KÝ
       </h2>
 
       <div
         style={{
-          background: "#0f172a",
-          padding: 20,
-          borderRadius: 12,
-          fontFamily: "Consolas, monospace",
-          height: 260,
+          // Nền bên trong màu xám rất nhạt (thay vì đen)
+          background: "#f8fafc", 
+          padding: "20px",
+          borderRadius: "12px",
+          fontFamily: "'Consolas', 'Monaco', monospace",
+          flex: 1, 
           overflowY: "auto",
-          border: "1px solid #334155",
+          border: "1px solid #e2e8f0", // Viền nhạt
+          fontSize: "0.9rem",
+          color: "#334155" // Chữ nội dung màu xám đậm
         }}
       >
         {logs.length === 0 ? (
-          <p style={{ color: "#60a5fa", fontStyle: "italic", opacity: 0.7 }}>
-            Chưa có chuyến giao hàng nào...
-          </p>
+          <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", opacity: 0.4 }}>
+             <span style={{ fontSize: "3rem", marginBottom: 20, filter: "grayscale(100%)" }}>📝</span>
+             <p style={{ fontStyle: "italic", margin: 0, fontSize: "1.1rem", color: "#64748b" }}>Chưa có dữ liệu...</p>
+          </div>
         ) : (
           logs.map((log, i) => (
             <div
               key={i}
               style={{
-                marginBottom: 8,
-                color: "#93c5fd", // 🔹 xanh nhạt cho log
+                marginBottom: 12,
+                paddingBottom: 10,
+                borderBottom: "1px dashed #cbd5e1", // Đường kẻ phân cách
+                lineHeight: "1.6",
+                wordBreak: "break-word"
               }}
             >
-              {log}
+              {log.includes("]") ? (
+                  <>
+                    {/* Timestamp màu xám trung tính */}
+                    <span style={{ color: "#64748b", fontSize: "0.85rem", display: "block", marginBottom: "4px", fontWeight: "bold" }}>
+                        {log.split("]")[0]}]
+                    </span>
+                    {/* Nội dung chính màu xanh đậm hoặc đen */}
+                    <span style={{ color: "#0369a1", fontWeight: "500" }}>
+                        {log.split("]")[1]}
+                    </span>
+                  </>
+              ) : (
+                  <span style={{ color: "#334155" }}>{log}</span>
+              )}
             </div>
           ))
         )}
@@ -55,15 +95,22 @@ export default function DeliveryLog({ logs, v1Deliveries, v2Deliveries }) {
 
       <div
         style={{
-          marginTop: 15,
-          color: "#60a5fa",   // 🔵 Màu thống nhất
+          marginTop: 20,
+          display: "flex",
+          justifyContent: "space-between",
+          // Footer màu nền xám nhạt
+          background: "#f1f5f9", 
+          padding: "15px 25px",
+          borderRadius: "12px",
           fontSize: "1.1rem",
-          textAlign: "center",
           fontWeight: "bold",
+          color: "#1e293b", // Chữ tối
+          border: "1px solid #e2e8f0"
         }}
       >
-        V1: <strong style={{ color: "#60a5fa" }}>{v1Deliveries}</strong> lần giao  |  
-        V2: <strong style={{ color: "#60a5fa" }}>{v2Deliveries}</strong> lần giao
+        <span>V1: <span style={{color: "#2563eb", fontSize: "1.2rem"}}>{v1Deliveries}</span></span>
+        <span style={{opacity: 0.2, color: "#94a3b8"}}>|</span>
+        <span>V2: <span style={{color: "#0891b2", fontSize: "1.2rem"}}>{v2Deliveries}</span></span>
       </div>
     </div>
   );

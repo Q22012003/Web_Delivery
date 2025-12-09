@@ -48,10 +48,10 @@ export default function MapGrid({ v1, v2 }) {
         boxShadow: "0 20px 50px rgba(0,0,0,0.7)",
       }}
     >
-      {/* Vẽ lưới ĐẦY ĐỦ 5x5 (5 LINE dọc x 5 LINE ngang) - đẹp và đồng bộ */}
+      {/* Vẽ lưới ĐẦY ĐỦ (theo logic ban đầu của bạn) */}
       {Array.from({ length: 5 }, (_, i) =>
         i === 0
-          ? null // XOÁ HÀNG 5 BẠN ĐANG NHÌN
+          ? null // XOÁ HÀNG 5 (chỉ vẽ từ hàng dưới lên)
           : Array.from({ length: 4 }, (_, j) => (
               <div
                 key={`${i}-${j}`}
