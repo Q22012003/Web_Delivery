@@ -5,6 +5,7 @@ import Statistics from "./pages/Statistics";
 import RealTime from "./pages/RealTime";
 import Alert from "./pages/Alert"; 
 import Sidebar from "./components/Sidebar";   // thêm dòng này
+import Inventory from "./pages/Inventory";
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/statistics" element={<Statistics />} />
+            <Route path="/inventory" element={<Inventory />} />
             <Route path="/real-time" element={<RealTime />} />
             <Route path="/alert" element={<Alert />} />
           </Routes>
