@@ -260,7 +260,7 @@ return (
         textShadow: "0 0 30px rgba(96,165,250,0.6)",
       }}
     >
-      XE GIAO HÀNG TỰ ĐỘNG
+      AUTOMATION CAR DELIVERY
     </h1>
 
     {/* --- LAYOUT CHÍNH --- */}
