@@ -1,60 +1,51 @@
 // src/components/DeliveryLog.jsx
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 export default function DeliveryLog({ logs, v1Deliveries, v2Deliveries }) {
+  const logsEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [logs]);
+
   return (
     <div
       style={{
-        // === GIAO DIỆN TRẮNG (LIGHT MODE) ===
         background: "#ffffff", 
         padding: "30px",
         borderRadius: "20px",
-        
-        // Kích thước & Layout (Giữ nguyên để khớp với Bảng điều khiển)
-        minWidth: "420px", 
-        flex: 1,
-        maxWidth: "500px",
-
+        width: "420px", 
         boxSizing: "border-box",
-        // Bóng đổ mềm mại giống Bảng điều khiển
         boxShadow: "0 15px 35px -5px rgba(0, 0, 0, 0.15)", 
-        // border: "1px solid #e2e8f0", // Có thể thêm viền mờ hoặc bỏ tùy thích
-        
         display: "flex",       
         flexDirection: "column",
-        height: "100%" 
+        height: "100%", // Chiếm hết 600px của cha
+        overflow: "hidden" 
       }}
     >
-      <h2
-        style={{
-          // Chữ tiêu đề màu tối
-          color: "#1e293b", 
-          marginBottom: 20,
-          fontSize: "1.4rem",
-          fontWeight: "800",
-          textAlign: "center",
-          textTransform: "uppercase",
-          // Gạch chân màu xám nhạt
-          borderBottom: "2px solid #f1f5f9", 
-          paddingBottom: "15px",
-          letterSpacing: "1px"
-        }}
-      >
+      <h2 style={{ color: "#1e293b", marginBottom: 20, fontSize: "1.4rem", fontWeight: "800", textAlign: "center", textTransform: "uppercase", borderBottom: "2px solid #f1f5f9", paddingBottom: "15px", letterSpacing: "1px", marginTop: 0 }}>
         NHẬT KÝ
       </h2>
 
+      {/* Phần LIST LOG: Chỉ phần này mới scroll */}
       <div
         style={{
-          // Nền bên trong màu xám rất nhạt (thay vì đen)
           background: "#f8fafc", 
           padding: "20px",
           borderRadius: "12px",
           fontFamily: "'Consolas', 'Monaco', monospace",
-          flex: 1, 
-          overflowY: "auto",
-          border: "1px solid #e2e8f0", // Viền nhạt
+          
+          flex: 1,           // Tự dãn ra lấp đầy khoảng trống
+          overflowY: "auto", // <--- Hiện thanh cuộn khi nội dung dài
+          minHeight: 0,      // Fix lỗi flexbox để scroll hoạt động
+          
+          border: "1px solid #e2e8f0", 
           fontSize: "0.9rem",
-          color: "#334155" // Chữ nội dung màu xám đậm
+          color: "#334155"
         }}
       >
         {logs.length === 0 ? (
@@ -64,23 +55,12 @@ export default function DeliveryLog({ logs, v1Deliveries, v2Deliveries }) {
           </div>
         ) : (
           logs.map((log, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: 12,
-                paddingBottom: 10,
-                borderBottom: "1px dashed #cbd5e1", // Đường kẻ phân cách
-                lineHeight: "1.6",
-                wordBreak: "break-word"
-              }}
-            >
+            <div key={i} style={{ marginBottom: 12, paddingBottom: 10, borderBottom: "1px dashed #cbd5e1", lineHeight: "1.6", wordBreak: "break-word" }}>
               {log.includes("]") ? (
                   <>
-                    {/* Timestamp màu xám trung tính */}
                     <span style={{ color: "#64748b", fontSize: "0.85rem", display: "block", marginBottom: "4px", fontWeight: "bold" }}>
                         {log.split("]")[0]}]
                     </span>
-                    {/* Nội dung chính màu xanh đậm hoặc đen */}
                     <span style={{ color: "#0369a1", fontWeight: "500" }}>
                         {log.split("]")[1]}
                     </span>
@@ -91,23 +71,10 @@ export default function DeliveryLog({ logs, v1Deliveries, v2Deliveries }) {
             </div>
           ))
         )}
+        <div ref={logsEndRef} />
       </div>
 
-      <div
-        style={{
-          marginTop: 20,
-          display: "flex",
-          justifyContent: "space-between",
-          // Footer màu nền xám nhạt
-          background: "#f1f5f9", 
-          padding: "15px 25px",
-          borderRadius: "12px",
-          fontSize: "1.1rem",
-          fontWeight: "bold",
-          color: "#1e293b", // Chữ tối
-          border: "1px solid #e2e8f0"
-        }}
-      >
+      <div style={{ marginTop: 20, display: "flex", justifyContent: "space-between", background: "#f1f5f9", padding: "15px 25px", borderRadius: "12px", fontSize: "1.1rem", fontWeight: "bold", color: "#1e293b", border: "1px solid #e2e8f0" }}>
         <span>V1: <span style={{color: "#2563eb", fontSize: "1.2rem"}}>{v1Deliveries}</span></span>
         <span style={{opacity: 0.2, color: "#94a3b8"}}>|</span>
         <span>V2: <span style={{color: "#0891b2", fontSize: "1.2rem"}}>{v2Deliveries}</span></span>
