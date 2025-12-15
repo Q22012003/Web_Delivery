@@ -172,14 +172,9 @@ export default function Sidebar() {
         borderRadius: 12, 
         marginTop: 'auto' 
       }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#475569' }}></div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <span style={{ fontSize: '0.85rem', color: 'white', fontWeight: 'bold' }}>Admin User</span>
-            <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Online</span>
-          </div>
+      
         </div>
       </div>
-    </div>
+    
   );
 }

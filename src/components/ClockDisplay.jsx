@@ -27,19 +27,45 @@ export default function ClockDisplay() {
 
   return (
     <div style={{ textAlign: "center", marginBottom: 20 }}>
-      <div
-        style={{
-          fontSize: "3.8rem",
-          fontWeight: "bold",
-          color: "#60a5fa",
-          textShadow: "0 0 30px rgba(96,165,250,0.6)",
-        }}
-      >
-        {formatTime()}
-      </div>
-      <div style={{ fontSize: "1.6rem", color: "#94a3b8" }}>
-        {formatDate()} • LINE Logistics System
-      </div>
+    <div
+      style={{
+        fontSize: "3.8rem",
+        fontWeight: 800,
+  
+        background:
+          "linear-gradient(270deg, #60a5fa, #a78bfa, #34d399, #60a5fa)",
+        backgroundSize: "600% 600%",
+        WebkitBackgroundClip: "text",
+        WebkitTextFillColor: "transparent",
+  
+        textShadow: "0 0 30px rgba(96,165,250,0.35)",
+        animation: "clockGradient 8s ease infinite",
+      }}
+    >
+      {formatTime()}
     </div>
+  
+    <div
+      style={{
+        fontSize: "1.6rem",
+        color: "#94a3b8",
+        marginTop: 6,
+        letterSpacing: "0.5px",
+      }}
+    >
+      {formatDate()} • LINE Logistics System
+    </div>
+  
+    <style>
+      {`
+        @keyframes clockGradient {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+      `}
+    </style>
+  </div>
+  
   );
 }

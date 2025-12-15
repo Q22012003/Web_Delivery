@@ -5,7 +5,7 @@ import ClockDisplay from "../components/ClockDisplay";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
 import UnifiedControlPanel from "../components/UnifiedControlPanel";
-import DeliveryLog from "../components/DeliveryLog"; 
+import DeliveryLog from "../components/DeliveryLog";
 import io from "socket.io-client";
 import { aStarSearch } from "../utils/aStar";
 
@@ -27,19 +27,29 @@ export default function RealTime() {
   const [deliveryCounters, setDeliveryCounters] = useState({ V1: 0, V2: 0 });
 
   const getNextDeliveryId = () => {
-    const counter = parseInt(localStorage.getItem("realDeliveryCounter") || "0") + 1;
+    const counter =
+      parseInt(localStorage.getItem("realDeliveryCounter") || "0") + 1;
     localStorage.setItem("realDeliveryCounter", counter);
     return `DH${String(counter).padStart(4, "0")}`;
   };
 
   const addLog = (vehicleId, cargo, success = true) => {
-    const now = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false });
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour12: false,
+    });
     const deliveryId = getNextDeliveryId();
     const statusText = success ? "Đã gửi lộ trình" : "Lỗi gửi lệnh";
     const cargoText = cargo ? `${cargo} hàng` : "Không có hàng";
-    setLogs((prev) => [...prev, `[${now}] ${vehicleId} | ${deliveryId} | ${cargoText} | ${statusText}`]);
+    setLogs((prev) => [
+      ...prev,
+      `[${now}] ${vehicleId} | ${deliveryId} | ${cargoText} | ${statusText}`,
+    ]);
     if (success && vehicleId) {
-      setDeliveryCounters((prev) => ({ ...prev, [vehicleId]: prev[vehicleId] + 1 }));
+      setDeliveryCounters((prev) => ({
+        ...prev,
+        [vehicleId]: prev[vehicleId] + 1,
+      }));
     }
   };
 
@@ -50,7 +60,11 @@ export default function RealTime() {
       const targetVehicle = data.device_id.includes("01") ? "V1" : "V2";
       setVehicles((prev) => ({
         ...prev,
-        [targetVehicle]: { ...prev[targetVehicle], pos: data.position, status: "moving" },
+        [targetVehicle]: {
+          ...prev[targetVehicle],
+          pos: data.position,
+          status: "moving",
+        },
       }));
       setTimeout(() => {
         setVehicles((prev) => ({
@@ -67,9 +81,14 @@ export default function RealTime() {
     return () => clearInterval(interval);
   }, []);
 
-  const sendPathToBackend = async (vehicleId, cargo, customStart = null, customGoal = null) => {
+  const sendPathToBackend = async (
+    vehicleId,
+    cargo,
+    customStart = null,
+    customGoal = null
+  ) => {
     const startPos = customStart || vehicles[vehicleId].pos;
-    const goalPos = customGoal || [5, 3]; 
+    const goalPos = customGoal || [5, 3];
 
     console.log(`Tính A* từ [${startPos}] đến [${goalPos}]`);
 
@@ -81,21 +100,23 @@ export default function RealTime() {
       return;
     }
 
-    const formattedPath = pathToSend.map(p => `${p[0]},${p[1]}`);
+    const formattedPath = pathToSend.map((p) => `${p[0]},${p[1]}`);
 
     try {
       await fetch("http://localhost:5000/api/car/navigate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-            vehicle_id: vehicleId,
-            path: formattedPath,
-            cargo: cargo 
+        body: JSON.stringify({
+          vehicle_id: vehicleId,
+          path: formattedPath,
+          cargo: cargo,
         }),
       });
 
       addLog(vehicleId, cargo, true);
-      setAlertMessage(`${vehicleId} bắt đầu chạy từ ${startPos} đến ${goalPos}!`);
+      setAlertMessage(
+        `${vehicleId} bắt đầu chạy từ ${startPos} đến ${goalPos}!`
+      );
     } catch (err) {
       console.error("Lỗi gửi lệnh:", err);
       addLog(vehicleId, cargo, false);
@@ -107,18 +128,18 @@ export default function RealTime() {
 
   const handleStart = (id, startInput, endInput) => {
     const parsePos = (str) => {
-        if (!str) return null;
-        // Kiểm tra xem input là mảng hay string (vì component UnifiedControlPanel trả về string JSON)
-        if (Array.isArray(str)) return str; 
-        if (typeof str === 'string' && str.includes('[')) return JSON.parse(str); 
-        // Fallback cũ nếu cần
-        return str ? str.split(',').map(Number) : null;
+      if (!str) return null;
+      // Kiểm tra xem input là mảng hay string (vì component UnifiedControlPanel trả về string JSON)
+      if (Array.isArray(str)) return str;
+      if (typeof str === "string" && str.includes("[")) return JSON.parse(str);
+      // Fallback cũ nếu cần
+      return str ? str.split(",").map(Number) : null;
     };
 
     // UnifiedControlPanel mới trả về object hoặc array, cần đảm bảo đúng format
     const sPos = parsePos(startInput) || vehicles[id].pos;
     const ePos = parsePos(endInput) || [5, 3];
-    
+
     const cargo = cargoAmounts[id] || "0";
 
     if (vehicles[id].status === "moving") {
@@ -149,31 +170,41 @@ export default function RealTime() {
 
   // === PHẦN LAYOUT UI ĐƯỢC CẬP NHẬT ===
   return (
-    <div style={{
+    <div
+      style={{
         padding: "30px 40px",
         background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
         minHeight: "100vh",
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
-        overflowX: "hidden"
-      }}>
+        overflowX: "hidden",
+      }}
+    >
       <ClockDisplay />
-      
-      <h1 style={{
-          textAlign: "center", margin: "20px 0 40px", color: "#60a5fa",
-          fontSize: "3rem", fontWeight: "bold", textShadow: "0 0 30px rgba(96,165,250,0.6)",
-        }}>
-        CHẾ ĐỘ THỰC TẾ
+
+      <h1
+        style={{
+          textAlign: "center",
+          margin: "20px 0 40px",
+          fontSize: "3rem",
+          fontWeight: 800,
+          background: "linear-gradient(45deg, #60a5fa, #a78bfa)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          textShadow: "0 0 30px rgba(96,165,250,0.35)",
+        }}
+      >
+        CHẾ ĐỘ THỜI GIAN THẬT
       </h1>
 
       {/* --- COPY CẤU TRÚC LAYOUT TỪ HOME.JSX --- */}
-      <div 
-        style={{ 
-          display: "flex", 
-          gap: 30, 
-          justifyContent: "center", 
+      <div
+        style={{
+          display: "flex",
+          gap: 30,
+          justifyContent: "center",
           alignItems: "stretch", // Quan trọng: Kéo giãn chiều cao bằng nhau
-          flexWrap: "wrap" 
+          flexWrap: "wrap",
         }}
       >
         {/* CỘT 1: BẢN ĐỒ */}
@@ -182,39 +213,45 @@ export default function RealTime() {
         </div>
 
         {/* CỘT 2: CONTROLS & LOG (Xếp ngang) */}
-        <div style={{ 
-            display: "flex", 
+        <div
+          style={{
+            display: "flex",
             flexDirection: "row",
-            gap: 25, 
-        }}>
-           {/* Nhóm A: Bảng điều khiển + Alert */}
-           <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <UnifiedControlPanel
-                v1={vehicles.V1}
-                v2={vehicles.V2}
-                cargoAmounts={cargoAmounts}
-                setCargoAmounts={setCargoAmounts}
-                onChange={updateVehicle}
-                onStart={handleStart}
-                onStartTogether={handleStartTogether}
-              />
-              
-              {/* Alert nằm ngay dưới bảng điều khiển giống Home */}
-              {alertMessage && (
-                 <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
-                    <CollisionAlert message={alertMessage} />
-                 </div>
-              )}
-           </div>
+            gap: 25,
+            alignItems: "stretch",
+            height: "600px",
+          }}
+        >
+          {/* Nhóm A: Bảng điều khiển + Alert */}
+          <div
+            style={{ display: "flex", flexDirection: "column", height: "100%" }}
+          >
+            <UnifiedControlPanel
+              v1={vehicles.V1}
+              v2={vehicles.V2}
+              cargoAmounts={cargoAmounts}
+              setCargoAmounts={setCargoAmounts}
+              onChange={updateVehicle}
+              onStart={handleStart}
+              onStartTogether={handleStartTogether}
+            />
 
-           {/* Nhóm B: Nhật ký */}
-           <div>
-              <DeliveryLog 
-                logs={logs} 
-                v1Deliveries={deliveryCounters.V1} 
-                v2Deliveries={deliveryCounters.V2} 
-              />
-           </div>
+            {/* Alert nằm ngay dưới bảng điều khiển giống Home */}
+            {alertMessage && (
+              <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
+                <CollisionAlert message={alertMessage} />
+              </div>
+            )}
+          </div>
+
+          {/* Nhóm B: Nhật ký */}
+          <div>
+            <DeliveryLog
+              logs={logs}
+              v1Deliveries={deliveryCounters.V1}
+              v2Deliveries={deliveryCounters.V2}
+            />
+          </div>
         </div>
       </div>
 

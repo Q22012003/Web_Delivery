@@ -288,6 +288,8 @@ function aStar(
       if (reservedEdges.has(`${posK}->${nk}@${tentTime}`)) blocked = true;
       if (reservedEdges.has(`${nk}->${posK}@${tentTime}`)) blocked = true;
 
+      
+
       // --- prevent entering goal if V1 still there ---
       if (nk === key(goal) && v1Path.length) {
         const goalIdx = tentTime - v2DelayTicks - v1TimeOffset;
@@ -335,4 +337,7 @@ function aStar(
   }
 
   return null;
+
+
+
 }

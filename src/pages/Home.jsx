@@ -28,30 +28,34 @@ export default function Home() {
   const navigate = useNavigate();
 
   // === State xe V1 ===
-  const [v1, setV1] = useState(() => loadSavedState("home_v1_state", {
-    id: "V1",
-    startPos: [1, 1],
-    endPos: [5, 3],
-    pos: [1, 1],
-    path: [],
-    status: "idle",
-    deliveries: 0,
-    tripLog: null,
-    activeCargo: 0, 
-  }));
+  const [v1, setV1] = useState(() =>
+    loadSavedState("home_v1_state", {
+      id: "V1",
+      startPos: [1, 1],
+      endPos: [5, 3],
+      pos: [1, 1],
+      path: [],
+      status: "idle",
+      deliveries: 0,
+      tripLog: null,
+      activeCargo: 0,
+    })
+  );
 
   // === State xe V2 ===
-  const [v2, setV2] = useState(() => loadSavedState("home_v2_state", {
-    id: "V2",
-    startPos: [1, 1],
-    endPos: [5, 5],
-    pos: [1, 1],
-    path: [],
-    status: "idle",
-    deliveries: 0,
-    tripLog: null,
-    activeCargo: 0,
-  }));
+  const [v2, setV2] = useState(() =>
+    loadSavedState("home_v2_state", {
+      id: "V2",
+      startPos: [1, 1],
+      endPos: [5, 5],
+      pos: [1, 1],
+      path: [],
+      status: "idle",
+      deliveries: 0,
+      tripLog: null,
+      activeCargo: 0,
+    })
+  );
 
   const [logs, setLogs] = useState(() => loadSavedState("home_logs", []));
 
@@ -68,15 +72,17 @@ export default function Home() {
     if (!qty || qty <= 0) return;
 
     const validWarehouses = ["5,1", "5,2", "5,3", "5,4", "5,5"];
-    
+
     if (validWarehouses.includes(destKey)) {
-      let currentStock = JSON.parse(localStorage.getItem("warehouse_stock") || "{}");
+      let currentStock = JSON.parse(
+        localStorage.getItem("warehouse_stock") || "{}"
+      );
       const oldQty = currentStock[destKey] || 0;
       const newQty = oldQty + qty;
       currentStock[destKey] = newQty;
-      
+
       localStorage.setItem("warehouse_stock", JSON.stringify(currentStock));
-      
+
       const msg = `✅ Đã nhập kho [${destKey}]: +${qty} (Tổng: ${newQty})`;
       console.log(msg);
       addLog("System", 0, msg);
@@ -84,14 +90,19 @@ export default function Home() {
   };
 
   const handleManualTest = () => {
-    if(confirm("Test: Sẽ cộng thêm 10 đơn vị vào kho 5,1 (Điện tử). Bạn có muốn thử không?")) {
-        updateInventoryStorage([5, 1], 10, "TESTER");
-        alert("Đã gửi dữ liệu! Hãy qua trang Quản lý kho kiểm tra.");
+    if (
+      confirm(
+        "Test: Sẽ cộng thêm 10 đơn vị vào kho 5,1 (Điện tử). Bạn có muốn thử không?"
+      )
+    ) {
+      updateInventoryStorage([5, 1], 10, "TESTER");
+      alert("Đã gửi dữ liệu! Hãy qua trang Quản lý kho kiểm tra.");
     }
   };
 
   const getNextDeliveryId = () => {
-    const counter = parseInt(localStorage.getItem("deliveryCounter") || "0") + 1;
+    const counter =
+      parseInt(localStorage.getItem("deliveryCounter") || "0") + 1;
     localStorage.setItem("deliveryCounter", counter);
     return `DH${String(counter).padStart(4, "0")}`;
   };
@@ -99,12 +110,16 @@ export default function Home() {
   const addLog = (id, deliveries, pathOrMessage) => {
     const now = new Date().toLocaleString("vi-VN", {
       timeZone: "Asia/Ho_Chi_Minh",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     });
 
     let message;
     if (typeof pathOrMessage === "string") {
-      message = `[${now}] ${id === "System" ? "HỆ THỐNG" : id}: ${pathOrMessage}`;
+      message = `[${now}] ${
+        id === "System" ? "HỆ THỐNG" : id
+      }: ${pathOrMessage}`;
     } else {
       const pathStr = pathOrMessage.map((p) => `${p[0]}.${p[1]}`).join(" → ");
       message = `[${now}] Xe ${id}: ${pathStr}`;
@@ -114,7 +129,9 @@ export default function Home() {
 
   const saveTripLog = async (id, startPos, endPos, cargo, path) => {
     const deliveryId = getNextDeliveryId();
-    const now = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
 
     const logEntry = {
       deliveryId,
@@ -133,7 +150,7 @@ export default function Home() {
     setTimeout(() => {
       const vehicle = id === "V1" ? v1 : v2;
       const setVehicle = id === "V1" ? setV1 : setV2;
-      
+
       const amountInput = cargoAmounts[id];
       const amount = parseInt(amountInput);
 
@@ -161,7 +178,7 @@ export default function Home() {
       }));
 
       saveTripLog(id, vehicle.startPos, vehicle.endPos, amount, fullPath);
-      addLog(id, vehicle.deliveries + 1, fullPath); 
+      addLog(id, vehicle.deliveries + 1, fullPath);
     }, delay);
   };
 
@@ -176,7 +193,7 @@ export default function Home() {
     }
 
     setIsRunningTogether(true);
-    
+
     const v1FullPath = aStarSearch(v1.startPos, v1.endPos, true);
     if (!v1FullPath) return;
 
@@ -185,9 +202,18 @@ export default function Home() {
       const pos = v1FullPath[i];
       v1Reserved.add(`${pos[0]},${pos[1]}@${i}`);
     }
-    const sameStartPos = v2.startPos[0] === v1.startPos[0] && v2.startPos[1] === v1.startPos[1];
-    const v2TimeOffset = sameStartPos ? 17 : 0; 
-    const v2FullPath = findSafePathWithReturn(v2.startPos, v2.endPos, v1Reserved, v2TimeOffset, v1FullPath, 0, 17);
+    const sameStartPos =
+      v2.startPos[0] === v1.startPos[0] && v2.startPos[1] === v1.startPos[1];
+    const v2TimeOffset = sameStartPos ? 17 : 0;
+    const v2FullPath = findSafePathWithReturn(
+      v2.startPos,
+      v2.endPos,
+      v1Reserved,
+      v2TimeOffset,
+      v1FullPath,
+      0,
+      17
+    );
 
     if (!v2FullPath) {
       addLog("System", 0, "V2 không tìm được đường an toàn!");
@@ -222,10 +248,13 @@ export default function Home() {
     setTimeout(() => {
       saveTripLog("V2", v2.startPos, v2.endPos, cargoAmounts.V2, v2FullPath);
     }, v2DelayMs);
-    
+
     addLog("V1", v1.deliveries + 1, v1FullPath);
-    setTimeout(() => addLog("V2", v2.deliveries + 1, v2FullPath), v2DelayMs + 100);
-    
+    setTimeout(
+      () => addLog("V2", v2.deliveries + 1, v2FullPath),
+      v2DelayMs + 100
+    );
+
     setCargoAmounts({ V1: "", V2: "" });
   };
 
@@ -240,18 +269,22 @@ export default function Home() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      [[v1, setV1], [v2, setV2]].forEach(([vehicle, setVehicle]) => {
-        
+      [
+        [v1, setV1],
+        [v2, setV2],
+      ].forEach(([vehicle, setVehicle]) => {
         if (vehicle.path.length > 0) {
           const nextPos = vehicle.path[0];
           const isLastStep = vehicle.path.length === 1;
-          const isAtDestination = nextPos[0] === vehicle.endPos[0] && nextPos[1] === vehicle.endPos[1];
+          const isAtDestination =
+            nextPos[0] === vehicle.endPos[0] &&
+            nextPos[1] === vehicle.endPos[1];
 
           let currentCargo = vehicle.activeCargo;
 
           if (isAtDestination && currentCargo > 0) {
             updateInventoryStorage(nextPos, currentCargo, vehicle.id);
-            currentCargo = 0; 
+            currentCargo = 0;
           }
 
           setVehicle((prev) => ({
@@ -264,7 +297,7 @@ export default function Home() {
           }));
         }
       });
-    }, 1000); 
+    }, 1000);
     return () => clearInterval(interval);
   }, [v1.path, v2.path]);
 
@@ -288,11 +321,11 @@ export default function Home() {
   }, [v1.status, v2.status, isRunningTogether]);
 
   const handleResetApp = () => {
-    if(confirm("Reset toàn bộ trạng thái về mặc định?")) {
-        localStorage.clear();
-        window.location.reload();
+    if (confirm("Reset toàn bộ trạng thái về mặc định?")) {
+      localStorage.clear();
+      window.location.reload();
     }
-  }
+  };
 
   return (
     <div
@@ -302,53 +335,60 @@ export default function Home() {
         minHeight: "100vh",
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
-        overflowX: "hidden"
+        overflowX: "hidden",
       }}
     >
       <ClockDisplay />
 
       <h1
-        style={{
-          textAlign: "center",
-          margin: "20px 0 40px",
-          color: "#60a5fa",
-          fontSize: "3rem",
-          fontWeight: "bold",
-          textShadow: "0 0 30px rgba(96,165,250,0.6)",
-        }}
-      >
-        AUTOMATION CAR DELIVERY
-      </h1>
+  style={{
+    textAlign: "center",
+    margin: "20px 0 40px",
+    fontSize: "3rem",
+    fontWeight: 800,
+    background: "linear-gradient(45deg, #60a5fa, #a78bfa)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    textShadow: "0 0 30px rgba(96,165,250,0.35)",
+  }}
+>
+  AUTOMATION CAR DELIVERY
+</h1>
+
 
       {/* --- PHẦN LAYOUT CHÍNH (ĐÃ SỬA) --- */}
-      <div 
-        style={{ 
-          display: "flex", 
-          gap: 30, 
-          justifyContent: "center", 
+      <div
+        style={{
+          display: "flex",
+          gap: 30,
+          justifyContent: "center",
           alignItems: "stretch", // QUAN TRỌNG: Ép các cột con phải cao bằng nhau (bằng chiều cao MapGrid)
-          flexWrap: "wrap" 
+          flexWrap: "wrap",
         }}
       >
-        
         {/* CỘT 1: BẢN ĐỒ */}
         <div style={{ flex: "0 0 auto" }}>
           <MapGrid v1={v1} v2={v2} />
         </div>
 
         {/* CỘT 2: CONTROLS & LOG */}
-        <div style={{ 
-            display: "flex", 
-            flexDirection: "row", 
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
             gap: 25,
+            alignItems: "stretch",
+    height: "600px",
             // Đã xóa height: "600px" để nó tự stretch theo cột map
-        }}>
-          
+          }}
+        >
           {/* A. Bảng điều khiển */}
-          <div style={{ 
-              display: "flex", 
-              flexDirection: "column", 
-          }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             <UnifiedControlPanel
               v1={v1}
               v2={v2}
@@ -358,32 +398,64 @@ export default function Home() {
               onStart={handleStart}
               onStartTogether={handleStartTogetherSafe}
             />
-            
+
             {alertMessage && (
-               <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
-                  <CollisionAlert message={alertMessage} />
-               </div>
+              <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
+                <CollisionAlert message={alertMessage} />
+              </div>
             )}
-            
-            <div style={{marginTop: 20, display:'flex', gap: 10, flexDirection: 'column'}}>
-                <button 
-                    onClick={handleManualTest}
-                    style={{ padding: "10px", background: "#3b82f6", border: "none", color: "white", borderRadius: 8, cursor: "pointer", fontWeight: 'bold' }}
-                >
-                    🛠️ Test Kết Nối Kho
-                </button>
-                <button 
-                    onClick={handleResetApp}
-                    style={{ padding: "10px", background: "rgba(239, 68, 68, 0.2)", border: "1px solid #ef4444", color: "#ef4444", borderRadius: 8, cursor: "pointer" }}
-                >
-                    🗑️ Reset Hệ Thống
-                </button>
+
+            <div
+              style={{
+                marginTop: 20,
+                display: "flex",
+                gap: 10,
+                flexDirection: "column",
+              }}
+            >
+              <button
+                onClick={handleManualTest}
+                style={{
+                  padding: "10px",
+                  background: "#3b82f6",
+                  border: "none",
+                  color: "white",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                🛠️ Test Kết Nối Kho
+              </button>
+              <button
+                onClick={handleResetApp}
+                style={{
+                  padding: "10px",
+                  background: "rgba(239, 68, 68, 0.2)",
+                  border: "1px solid #ef4444",
+                  color: "#ef4444",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                }}
+              >
+                🗑️ Reset Hệ Thống
+              </button>
             </div>
           </div>
 
           {/* B. Nhật ký: Luôn full chiều cao của cột cha */}
-          <div style={{ height: "100%" }}> 
-             <DeliveryLog logs={logs} v1Deliveries={v1.deliveries} v2Deliveries={v2.deliveries} />
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+            }}
+          >
+            <DeliveryLog
+              logs={logs}
+              v1Deliveries={v1.deliveries}
+              v2Deliveries={v2.deliveries}
+            />
           </div>
         </div>
       </div>
