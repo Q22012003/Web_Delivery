@@ -167,7 +167,8 @@ export default function RealTime() {
         minHeight: "100vh",
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
-        overflowX: "hidden"
+        overflowX: "hidden",
+        boxSizing: "border-box" // Đảm bảo padding không làm vỡ layout
       }}>
       <ClockDisplay />
       
@@ -187,15 +188,23 @@ export default function RealTime() {
           flexWrap: "wrap" 
         }}
       >
+        {/* Cột 1: Bản đồ */}
         <div style={{ flex: "0 0 auto" }}>
           <MapGrid v1={vehicles.V1} v2={vehicles.V2} />
         </div>
 
+        {/* Cột 2: Container chứa Điều khiển & Nhật ký */}
+        {/* [FIX] Set chiều cao tính toán theo màn hình để 2 bảng luôn bằng nhau */}
         <div style={{ 
             display: "flex", 
             flexDirection: "row",
             gap: 25, 
+            height: "calc(100vh - 180px)", // Chiều cao tự động theo màn hình
+            minHeight: "720px",            // Chiều cao tối thiểu để không bị mất nội dung
+            maxHeight: "900px"             // Giới hạn chiều cao trên màn hình quá lớn
         }}>
+           
+           {/* Bảng điều khiển */}
            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
               <UnifiedControlPanel
                 v1={vehicles.V1}
@@ -214,12 +223,29 @@ export default function RealTime() {
               )}
            </div>
 
-           <div>
-              <DeliveryLog 
-                logs={logs} 
-                v1Deliveries={deliveryCounters.V1} 
-                v2Deliveries={deliveryCounters.V2} 
-              />
+           {/* Bảng Nhật ký [FIX] - Chiều cao 100% theo cha */}
+           <div style={{
+              height: "100%",        // Luôn cao bằng container cha (bằng Bảng điều khiển)
+              overflowY: "auto",     // Tự động hiện thanh cuộn khi nội dung dài
+              paddingRight: "5px",
+              
+              // CSS thanh cuộn đẹp
+              scrollbarWidth: "thin",
+              scrollbarColor: "#64748b #1e293b",
+              
+              // Giữ style bao quanh nếu cần (hoặc để component tự lo)
+              borderRadius: "20px",
+              display: "flex",       // Flex để DeliveryLog bung ra hết cỡ
+              flexDirection: "column"
+           }}>
+              {/* Truyền style height 100% vào DeliveryLog nếu nó hỗ trợ, hoặc để div này lo */}
+              <div style={{ flex: 1 }}> 
+                  <DeliveryLog 
+                    logs={logs} 
+                    v1Deliveries={deliveryCounters.V1} 
+                    v2Deliveries={deliveryCounters.V2} 
+                  />
+              </div>
            </div>
         </div>
       </div>

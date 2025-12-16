@@ -336,33 +336,32 @@ export default function Home() {
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
         overflowX: "hidden",
+        boxSizing: "border-box" // [FIX] Ngăn vỡ layout
       }}
     >
       <ClockDisplay />
 
       <h1
-  style={{
-    textAlign: "center",
-    margin: "20px 0 40px",
-    fontSize: "3rem",
-    fontWeight: 800,
-    background: "linear-gradient(45deg, #60a5fa, #a78bfa)",
-    WebkitBackgroundClip: "text",
-    WebkitTextFillColor: "transparent",
-    textShadow: "0 0 30px rgba(96,165,250,0.35)",
-  }}
->
-  AUTOMATION CAR DELIVERY
-</h1>
+        style={{
+          textAlign: "center",
+          margin: "20px 0 40px",
+          fontSize: "3rem",
+          fontWeight: 800,
+          background: "linear-gradient(45deg, #60a5fa, #a78bfa)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          textShadow: "0 0 30px rgba(96,165,250,0.35)",
+        }}
+      >
+        AUTOMATION CAR DELIVERY
+      </h1>
 
-
-      {/* --- PHẦN LAYOUT CHÍNH (ĐÃ SỬA) --- */}
       <div
         style={{
           display: "flex",
           gap: 30,
           justifyContent: "center",
-          alignItems: "stretch", // QUAN TRỌNG: Ép các cột con phải cao bằng nhau (bằng chiều cao MapGrid)
+          alignItems: "stretch", 
           flexWrap: "wrap",
         }}
       >
@@ -372,14 +371,15 @@ export default function Home() {
         </div>
 
         {/* CỘT 2: CONTROLS & LOG */}
+        {/* [FIX] Áp dụng logic chiều cao cố định và thanh cuộn như RealTime */}
         <div
           style={{
             display: "flex",
             flexDirection: "row",
             gap: 25,
-            alignItems: "stretch",
-    height: "600px",
-            // Đã xóa height: "600px" để nó tự stretch theo cột map
+            height: "calc(100vh - 180px)", // Chiều cao tự động
+            minHeight: "720px",            // Đảm bảo không bị quá ngắn
+            maxHeight: "900px"             // Giới hạn chiều cao
           }}
         >
           {/* A. Bảng điều khiển */}
@@ -387,6 +387,7 @@ export default function Home() {
             style={{
               display: "flex",
               flexDirection: "column",
+              height: "100%", // Chiếm toàn bộ chiều cao container
             }}
           >
             <UnifiedControlPanel
@@ -405,6 +406,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Các nút chức năng thêm ở Home */}
             <div
               style={{
                 marginTop: 20,
@@ -443,19 +445,28 @@ export default function Home() {
             </div>
           </div>
 
-          {/* B. Nhật ký: Luôn full chiều cao của cột cha */}
+          {/* B. Bảng Nhật ký [FIX] - Scroll khi nội dung dài */}
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "100%",
+              height: "100%",        // Luôn cao bằng container cha (bằng Bảng điều khiển)
+              overflowY: "auto",     // Tự động hiện thanh cuộn khi nội dung dài
+              paddingRight: "5px",   // Đệm 1 chút cho đẹp
+              
+              // Style thanh cuộn
+              scrollbarWidth: "thin",
+              scrollbarColor: "#64748b #1e293b",
+              
+              display: "flex",       
+              flexDirection: "column"
             }}
           >
-            <DeliveryLog
-              logs={logs}
-              v1Deliveries={v1.deliveries}
-              v2Deliveries={v2.deliveries}
-            />
+             <div style={{ flex: 1 }}>
+                <DeliveryLog
+                  logs={logs}
+                  v1Deliveries={v1.deliveries}
+                  v2Deliveries={v2.deliveries}
+                />
+             </div>
           </div>
         </div>
       </div>
