@@ -1,4 +1,5 @@
-// ================== SMART PATHFINDING V2 ==================
+// src/utils/smartPathfinding.js
+// ================== SMART PATHFINDING (CORRIDOR-LOCK) ==================
 
 const validCells = new Set([
   "1,1",
@@ -47,297 +48,290 @@ function getNeighbors([r, c]) {
     .filter(([nr, nc]) => isValidCell(nr, nc));
 }
 
-function parseReserved(setIn) {
-  const nodes = new Set(),
-    edges = new Set();
-  for (const r of setIn) {
-    r.includes("->") ? edges.add(r) : nodes.add(r);
-  }
-  return { nodes, edges };
+function key(pos) {
+  return `${pos[0]},${pos[1]}`;
 }
 
-function shiftReserved(originalSet, delta) {
+function nodeToken(pos, t) {
+  return `${key(pos)}@${t}`;
+}
+
+function edgeToken(from, to, t) {
+  return `${key(from)}->${key(to)}@${t}`;
+}
+
+function corridorToken(corridorId, t) {
+  return `C:${corridorId}@${t}`;
+}
+
+/**
+ * ================== CORRIDOR DEFINITIONS ==================
+ * Bạn muốn “cấm dùng chung corridor”.
+ *
+ * Với map 5x5 của bạn, mình định nghĩa corridor theo các hành lang thẳng chính:
+ *  - ROW1_1_5: hàng 1 (1.1..1.5)
+ *  - ROW5_1_5: hàng 5 (5.1..5.5)
+ *  - COL1_2_5: cột 1 từ 2.1..5.1 (đúng ví dụ bạn nêu)
+ *  - COL5_2_5: cột 5 từ 2.5..5.5
+ *  - MID_ROW{2|3|4}_2_4: hàng 2/3/4 trong vùng giữa (cột 2..4)
+ *  - MID_COL{2|3|4}_2_4: cột 2/3/4 trong vùng giữa (hàng 2..4)
+ *
+ * Khi xe đi một bước (from->to), nếu bước đó nằm trên corridor nào thì sẽ khóa corridor đó theo tick.
+ */
+function corridorForMove(from, to) {
+  if (!from || !to) return null;
+  const [r1, c1] = from;
+  const [r2, c2] = to;
+
+  // wait (đứng yên) không khóa corridor
+  if (r1 === r2 && c1 === c2) return null;
+
+  // ROW1: 1.1..1.5
+  if (r1 === 1 && r2 === 1) return "ROW1_1_5";
+
+  // ROW5: 5.1..5.5
+  if (r1 === 5 && r2 === 5) return "ROW5_1_5";
+
+  // COL1: 2.1..5.1 (đúng yêu cầu ví dụ corridor 2.1→5.1)
+  if (c1 === 1 && c2 === 1 && r1 >= 2 && r2 >= 2) return "COL1_2_5";
+
+  // COL5: 2.5..5.5
+  if (c1 === 5 && c2 === 5 && r1 >= 2 && r2 >= 2) return "COL5_2_5";
+
+  // MID area rows 2..4 cols 2..4
+  const inMid = (r, c) => r >= 2 && r <= 4 && c >= 2 && c <= 4;
+
+  if (inMid(r1, c1) && inMid(r2, c2)) {
+    // mid row corridor
+    if (r1 === r2) return `MID_ROW${r1}_2_4`;
+    // mid col corridor
+    if (c1 === c2) return `MID_COL${c1}_2_4`;
+  }
+
+  return null;
+}
+
+function parseReserved(setIn) {
+  const nodes = new Set();
+  const edges = new Set();
+  const corridors = new Set();
+
+  for (const token of setIn || []) {
+    if (token.startsWith("C:")) corridors.add(token);
+    else if (token.includes("->")) edges.add(token);
+    else nodes.add(token);
+  }
+  return { nodes, edges, corridors };
+}
+
+function isBlocked(reservedParsed, from, to, t) {
+  // node collision at time t (occupy "to" at time t)
+  if (reservedParsed.nodes.has(nodeToken(to, t))) return true;
+
+  // edge collision (swap head-on): other uses (to->from) at time t
+  if (reservedParsed.edges.has(edgeToken(to, from, t))) return true;
+
+  // corridor collision: nếu bước này thuộc corridor nào thì corridor đó không được bị chiếm ở tick t
+  const cid = corridorForMove(from, to);
+  if (cid && reservedParsed.corridors.has(corridorToken(cid, t))) return true;
+
+  return false;
+}
+
+// A* in time-expanded graph (pos + time)
+function aStar(start, goal, reservedSet, startTime = 0, otherPath = [], otherStartTime = 0) {
+  const reserved = parseReserved(reservedSet);
+
+  const open = [];
+  const cameFrom = new Map();
+  const gScore = new Map();
+  const fScore = new Map();
+
+  const stateKey = (pos, t) => `${key(pos)}@${t}`;
+  const startState = stateKey(start, startTime);
+
+  gScore.set(startState, 0);
+  fScore.set(startState, heuristic(start, goal));
+  open.push({ pos: start, t: startTime, f: fScore.get(startState) });
+
+  const maxTime = 450;
+
+  while (open.length > 0) {
+    open.sort((a, b) => a.f - b.f);
+    const current = open.shift();
+    const curKey = stateKey(current.pos, current.t);
+
+    if (current.pos[0] === goal[0] && current.pos[1] === goal[1]) {
+      const path = [];
+      let cur = current;
+      while (cur) {
+        path.unshift(cur.pos);
+        const prev = cameFrom.get(stateKey(cur.pos, cur.t));
+        cur = prev || null;
+      }
+      return path;
+    }
+
+    if (current.t - startTime > maxTime) continue;
+
+    const candidates = [...getNeighbors(current.pos), current.pos]; // + wait
+    for (const nextPos of candidates) {
+      const nextT = current.t + 1;
+
+      // 1) reserved checks (node/edge/corridor)
+      if (isBlocked(reserved, current.pos, nextPos, nextT)) continue;
+
+      // 2) also avoid being on same node as otherPath at same time (extra safety)
+      const relT = nextT - otherStartTime;
+      if (otherPath && otherPath.length > 0 && relT >= 0 && relT < otherPath.length) {
+        const otherPos = otherPath[relT];
+        if (otherPos && otherPos[0] === nextPos[0] && otherPos[1] === nextPos[1]) continue;
+
+        // head-on swap vs otherPath
+        const prevRelT = relT - 1;
+        if (prevRelT >= 0 && prevRelT < otherPath.length) {
+          const otherPrev = otherPath[prevRelT];
+          if (
+            otherPrev &&
+            otherPrev[0] === nextPos[0] &&
+            otherPrev[1] === nextPos[1] &&
+            otherPos &&
+            otherPos[0] === current.pos[0] &&
+            otherPos[1] === current.pos[1]
+          ) {
+            continue;
+          }
+        }
+      }
+
+      const nextState = stateKey(nextPos, nextT);
+      const tentativeG = (gScore.get(curKey) || 0) + 1;
+
+      if (!gScore.has(nextState) || tentativeG < gScore.get(nextState)) {
+        cameFrom.set(nextState, { pos: current.pos, t: current.t });
+        gScore.set(nextState, tentativeG);
+        const f = tentativeG + heuristic(nextPos, goal);
+        fScore.set(nextState, f);
+
+        if (!open.some((n) => n.t === nextT && n.pos[0] === nextPos[0] && n.pos[1] === nextPos[1])) {
+          open.push({ pos: nextPos, t: nextT, f });
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function shiftReserved(reservedSet, deltaT) {
   const out = new Set();
-  for (const r of originalSet) {
-    const me = r.match(/(\d+,\d+)->(\d+,\d+)@(\d+)/);
-    if (me) {
-      out.add(`${me[1]}->${me[2]}@${+me[3] + delta}`);
+
+  for (const token of reservedSet || []) {
+    // Corridor token: C:<id>@t
+    if (token.startsWith("C:")) {
+      const [cPart, tPart] = token.split("@");
+      const t = parseInt(tPart, 10);
+      const nt = t + deltaT;
+      if (Number.isFinite(nt) && nt >= 0) out.add(`${cPart}@${nt}`);
       continue;
     }
-    const mn = r.match(/(\d+,\d+)@(\d+)/);
-    if (mn) out.add(`${mn[1]}@${+mn[2] + delta}`);
+
+    // Edge token
+    if (token.includes("->")) {
+      const [edgePart, tPart] = token.split("@");
+      const t = parseInt(tPart, 10);
+      const nt = t + deltaT;
+      if (Number.isFinite(nt) && nt >= 0) out.add(`${edgePart}@${nt}`);
+      continue;
+    }
+
+    // Node token
+    const [posPart, tPart] = token.split("@");
+    const t = parseInt(tPart, 10);
+    const nt = t + deltaT;
+    if (Number.isFinite(nt) && nt >= 0) out.add(`${posPart}@${nt}`);
   }
+
   return out;
 }
 
-// ================== FIND SAFE PATH WITH RETURN ==================
+function reservePathAll(baseReserved, pathFull, timeOffset = 0, corridorWindow = 0) {
+  if (!pathFull || pathFull.length < 2) return;
+
+  // reserve nodes + edges + corridors per tick
+  for (let i = 1; i < pathFull.length; i++) {
+    const from = pathFull[i - 1];
+    const to = pathFull[i];
+    const t = timeOffset + i;
+
+    baseReserved.add(nodeToken(to, t));
+    baseReserved.add(edgeToken(from, to, t));
+
+    const cid = corridorForMove(from, to);
+    if (cid) {
+      // window = 0: chỉ khóa đúng tick di chuyển
+      // window > 0: khóa thêm ±window tick (cực an toàn, tránh sát nút)
+      for (let dt = -corridorWindow; dt <= corridorWindow; dt++) {
+        const tt = t + dt;
+        if (tt >= 0) baseReserved.add(corridorToken(cid, tt));
+      }
+    }
+  }
+}
+
+// MAIN API
+// returnTarget: nếu muốn xe về bến đỗ khác start (vd 1.2..1.5) thì truyền returnTarget
 export function findSafePathWithReturn(
   start,
   goal,
   reservedTimes,
   timeOffset = 0,
-  v1Path = [],
-  v1StartTime = 0,
-  v2DelayTicks = 17
+  otherPath = [],
+  otherStartTime = 0,
+  v2DelayTicks = 0,
+  returnTarget = null
 ) {
-  if (!isValidCell(...start) || !isValidCell(...goal)) return null;
-  const key = (p) => `${p[0]},${p[1]}`;
-  const v1Offset = Math.round(v1StartTime / 100);
+  if (!isValidCell(start[0], start[1]) || !isValidCell(goal[0], goal[1])) return null;
 
-  // --- PATH TO GOAL ---
-  let pathToGoal = null,
-    bestDelay = 0;
-  for (let delay = 0; delay <= 36; delay++) {
-    const delayed = shiftReserved(reservedTimes, delay);
-    const candidate = aStar(
-      start,
-      goal,
-      delayed,
-      timeOffset + delay,
-      v1Path,
-      v1Offset,
-      v2DelayTicks
-    );
-    if (candidate && candidate.length >= 2) {
-      pathToGoal = candidate;
-      bestDelay = delay;
-      break;
-    }
-  }
-  if (!pathToGoal) return null;
+  const baseReserved = new Set(reservedTimes || []);
 
-  timeOffset += bestDelay;
-  const arrivalTime = timeOffset + pathToGoal.length - 1;
-  const baseReserved = new Set([...reservedTimes]);
-
-  // --- RESERVE V2 PATH ---
-  for (let i = 1; i < pathToGoal.length; i++) {
-    const p = pathToGoal[i];
-    const t = arrivalTime - (pathToGoal.length - 1) + i;
-    baseReserved.add(`${key(p)}@${t}`);
-    const prev = pathToGoal[i - 1];
-    baseReserved.add(`${key(prev)}->${key(p)}@${t}`);
+  // Reserve otherPath into baseReserved (node+edge+corridor) để path mới né toàn diện
+  if (otherPath && otherPath.length > 1) {
+    reservePathAll(baseReserved, otherPath, 0, 0); // corridorWindow=1 cho chắc
   }
 
-  // --- RESERVE V1 NODES & EDGES ---
-  if (v1Path && v1Path.length) {
-    for (let i = 0; i < v1Path.length; i++) {
-      const p = v1Path[i];
-      const t = i;
-      for (let dt = -2; dt <= 2; dt++) {
-        const ti = t + dt;
-        if (ti >= 0) baseReserved.add(`${key(p)}@${ti}`);
-      }
-    }
-    for (let i = 0; i < v1Path.length - 1; i++) {
-      const from = v1Path[i],
-        to = v1Path[i + 1];
-      const moveTime = i + 1;
-      for (let dt = -2; dt <= 2; dt++) {
-        const ti = moveTime + dt;
-        if (ti >= 0) baseReserved.add(`${key(to)}->${key(from)}@${ti}`);
-      }
-    }
-  }
+  // --- TO GOAL ---
+  const pathToGoal = aStar(start, goal, baseReserved, timeOffset, otherPath, otherStartTime);
+  if (!pathToGoal || pathToGoal.length < 2) return null;
+
+  const arrivalTime = timeOffset + (pathToGoal.length - 1);
+
+  // reserve chính pathToGoal của mình để đoạn return không tự đụng + để shift/wait ổn định
+  reservePathAll(baseReserved, pathToGoal, timeOffset, 1);
 
   // --- RETURN PATH ---
+  const backTarget = returnTarget || start;
   let returnPath = null;
-  for (let waitAtHome = 0; waitAtHome <= 180; waitAtHome++) {
-    const shifted = shiftReserved(baseReserved, -waitAtHome);
+
+  for (let wait = 0; wait <= 220; wait++) {
+    // shiftReserved giúp “dời” các reserved theo wait để tìm đường return an toàn hơn
+    const shifted = shiftReserved(baseReserved, -wait);
     const candidate = aStar(
       goal,
-      start,
+      backTarget,
       shifted,
-      arrivalTime + waitAtHome + 2,
-      v1Path,
-      v1Offset,
-      v2DelayTicks
+      arrivalTime + wait + 2,
+      otherPath,
+      otherStartTime
     );
+
     if (candidate && candidate.length >= 2) {
       returnPath = candidate;
       break;
     }
   }
+
   if (!returnPath) return null;
 
   return [...pathToGoal, ...returnPath.slice(1)];
-}
-
-// ================== A* HEAD-ON SAFE ==================
-function aStar(
-  start,
-  goal,
-  reservedCombined,
-  offset = 0,
-  v1Path = [],
-  v1TimeOffset = 0,
-  v2DelayTicks = 17
-) {
-  const { nodes: reservedNodes, edges: reservedEdges } =
-    parseReserved(reservedCombined);
-  const openSet = [],
-    cameFrom = new Map(),
-    gScore = new Map();
-  const key = (p) => `${p[0]},${p[1]}`;
-  const closed = new Set();
-
-  const startState = `${key(start)}@${offset}`;
-  gScore.set(startState, 0);
-  openSet.push({ pos: start, f: heuristic(start, goal), time: offset });
-
-  while (openSet.length) {
-    openSet.sort((a, b) => a.f - b.f);
-    const { pos, time: posTime } = openSet.shift();
-    const posK = key(pos);
-    const posState = `${posK}@${posTime}`;
-    if (closed.has(posState)) continue;
-    closed.add(posState);
-
-    // --- GOAL FOUND ---
-    if (pos[0] === goal[0] && pos[1] === goal[1]) {
-      const path = [];
-      let cur = posState;
-      while (cur) {
-        path.unshift(cur);
-        cur = cameFrom.get(cur);
-      }
-      return path.map((s) => {
-        const [rc] = s.split("@");
-        return rc.split(",").map(Number);
-      });
-    }
-
-    const curG = gScore.get(posState) || 0;
-    const neighbors = getNeighbors(pos);
-    let hasFreeNeighbor = false;
-
-    // --- FORCE WAIT AT START IF V1 STILL THERE ---
-    if (
-      posTime === 0 &&
-      v1Path.length &&
-      v1Path[0][0] === pos[0] &&
-      v1Path[0][1] === pos[1]
-    ) {
-      const waitState = `${posK}@${posTime + 1}`;
-      if (!gScore.has(waitState)) {
-        gScore.set(waitState, curG + 1);
-        cameFrom.set(waitState, posState);
-        openSet.push({
-          pos: pos,
-          f: curG + 1 + heuristic(pos, goal),
-          time: posTime + 1,
-        });
-      }
-      continue;
-    }
-
-    for (const nei of neighbors) {
-      const nk = key(nei);
-      const tentTime = posTime + 1;
-      const neiState = `${nk}@${tentTime}`;
-      const tentG = curG + 1;
-
-      // --- prevent cycles ---
-      let anc = posState,
-        isAncestor = false;
-      while (anc) {
-        const p = cameFrom.get(anc);
-        if (!p) break;
-        if (p === neiState) {
-          isAncestor = true;
-          break;
-        }
-        anc = p;
-      }
-      if (isAncestor) continue;
-
-      // --- BLOCK CHECK ---
-      let blocked = false;
-
-      // --- V1 node/edge head-on ±1 tick ---
-      if (v1Path.length) {
-        const idxBase = tentTime - v2DelayTicks - v1TimeOffset;
-        for (let dt = -1; dt <= 1; dt++) {
-          const idx = idxBase + dt;
-          if (idx >= 0 && idx < v1Path.length) {
-            const v1Pos = v1Path[idx];
-            if (v1Pos?.[0] === nei[0] && v1Pos?.[1] === nei[1]) blocked = true;
-            if (idx > 0) {
-              const v1Prev = v1Path[idx - 1];
-              if (v1Prev && v1Prev[0] === nei[0] && v1Prev[1] === nei[1])
-                blocked = true;
-              if (
-                v1Prev &&
-                v1Prev[0] === pos[0] &&
-                v1Prev[1] === pos[1] &&
-                v1Pos[0] === pos[0] &&
-                v1Pos[1] === pos[1]
-              )
-                blocked = true;
-            }
-          }
-        }
-      }
-
-      // --- reserved nodes/edges ---
-      if (
-        reservedNodes.has(`${nk}@${tentTime}`) ||
-        reservedNodes.has(`${nk}@${tentTime - 1}`)
-      )
-        blocked = true;
-      if (reservedEdges.has(`${posK}->${nk}@${tentTime}`)) blocked = true;
-      if (reservedEdges.has(`${nk}->${posK}@${tentTime}`)) blocked = true;
-
-      
-
-      // --- prevent entering goal if V1 still there ---
-      if (nk === key(goal) && v1Path.length) {
-        const goalIdx = tentTime - v2DelayTicks - v1TimeOffset;
-        if (goalIdx >= 0 && goalIdx < v1Path.length) {
-          const v1AtGoal = v1Path[goalIdx];
-          if (v1AtGoal[0] === goal[0] && v1AtGoal[1] === goal[1])
-            blocked = true;
-        }
-      }
-
-      // --- allow wait if neighbors blocked ---
-      const freeNeighborExist = neighbors.some(
-        (n) => !reservedNodes.has(`${key(n)}@${tentTime}`)
-      );
-      if (!blocked || (!freeNeighborExist && nk === posK)) {
-        hasFreeNeighbor = true;
-      }
-
-      if (blocked) continue;
-
-      // --- update g & openSet ---
-      if (!gScore.has(neiState) || tentG < gScore.get(neiState)) {
-        cameFrom.set(neiState, posState);
-        gScore.set(neiState, tentG);
-        const f = tentG + heuristic(nei, goal);
-        const existing = openSet.find(
-          (o) => key(o.pos) === nk && o.time === tentTime
-        );
-        if (existing) existing.f = f;
-        else openSet.push({ pos: nei, f, time: tentTime });
-      }
-    }
-
-    // --- always allow wait ---
-    const waitState = `${posK}@${posTime + 1}`;
-    if (!gScore.has(waitState) || !hasFreeNeighbor) {
-      gScore.set(waitState, curG + 1);
-      cameFrom.set(waitState, posState);
-      openSet.push({
-        pos: pos,
-        f: curG + 1 + heuristic(pos, goal),
-        time: posTime + 1,
-      });
-    }
-  }
-
-  return null;
-
-
-
 }

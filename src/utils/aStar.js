@@ -51,16 +51,14 @@ function getNeighbors(pos) {
   for (const [dr, dc] of dirs) {
     const nr = r + dr;
     const nc = c + dc;
-
-    // CHỈ KIỂM TRA Ô CÓ HỢP LỆ HAY KHÔNG → ĐI TỰ DO HOÀN TOÀN!
-    if (isValidCell(nr, nc)) {
-      neighbors.push([nr, nc]);
-    }
+    if (isValidCell(nr, nc)) neighbors.push([nr, nc]);
   }
   return neighbors;
 }
 
-export function aStarSearch(start, goal, returnToStart = true) {
+// aStarSearch: nếu returnToStart=true thì mặc định quay về start.
+// Nếu muốn quay về một điểm khác (ví dụ bến đỗ 1,2..1,5), truyền returnTarget.
+export function aStarSearch(start, goal, returnToStart = true, returnTarget = null) {
   if (!isValidCell(start[0], start[1]) || !isValidCell(goal[0], goal[1])) {
     return [];
   }
@@ -91,7 +89,8 @@ export function aStarSearch(start, goal, returnToStart = true) {
       }
 
       if (returnToStart && (start[0] !== goal[0] || start[1] !== goal[1])) {
-        const returnPath = aStarSearch(goal, start, false);
+        const target = returnTarget || start;
+        const returnPath = aStarSearch(goal, target, false);
         return returnPath.length > 1 ? path.concat(returnPath.slice(1)) : path;
       }
       return path;
