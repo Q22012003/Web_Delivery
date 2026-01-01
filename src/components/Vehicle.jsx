@@ -60,34 +60,77 @@ export default function Vehicle({ id, pos,prevPos, status, index = 0 }) {
         zIndex: row === 1 ? 50 : row === 5 ? 48 : 30,
         pointerEvents: "none",
         filter: lightsOn
-          ? "drop-shadow(0 0 12px rgba(255,255,255,0.6))"
-          : "none",
-        opacity: lightsOn ? 1 : 0.75,
+          ? `drop-shadow(0 0 10px ${baseColor}88) drop-shadow(0 0 20px rgba(255,255,255,0.25))`
+          : "drop-shadow(0 2px 10px rgba(0,0,0,0.35))",
+        opacity: lightsOn ? 1 : 0.85,
       }}
     >
-      <CarIcon color={carColor} />
-
+      {/* nền glow nhẹ dưới xe */}
       <div
         style={{
           position: "absolute",
-          top: "140%",
+          left: "50%",
+          top: "62%",
+          transform: "translate(-50%, -50%)",
+          width: "70%",
+          height: "28%",
+          borderRadius: "999px",
+          background: lightsOn
+            ? `radial-gradient(circle at 50% 50%, ${baseColor}66 0%, rgba(0,0,0,0) 70%)`
+            : "radial-gradient(circle at 50% 50%, rgba(148,163,184,0.18) 0%, rgba(0,0,0,0) 70%)",
+          filter: "blur(6px)",
+        }}
+      />
+
+      <CarIcon color={carColor} />
+
+      {/* Label + badge */}
+      <div
+        style={{
+          position: "absolute",
+          top: "138%",
           left: "50%",
           transform: "translateX(-50%)",
-          background: "rgba(0,0,0,0.95)",
-          color: "#fff",
-          fontWeight: "bold",
-          fontSize: "0.95vw",
-          padding: "4px 11px",
-          borderRadius: "10px",
-          border: `2.5px solid ${labelColor}`,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 10px",
+          borderRadius: 999,
+          background: "rgba(2,6,23,0.88)",
+          border: `1px solid ${labelColor}AA`,
+          boxShadow: "0 10px 24px rgba(0,0,0,0.55)",
           whiteSpace: "nowrap",
-          boxShadow: "0 6px 16px rgba(0,0,0,0.8)",
-          opacity: lightsOn ? 1 : 0.7,
-          transition: "all 0.4s",
         }}
       >
-        {id} {lightsOn ? "" : "(đang chờ)"}
+        <span
+          style={{
+            width: 9,
+            height: 9,
+            borderRadius: "50%",
+            background: lightsOn ? baseColor : "#94a3b8",
+            boxShadow: lightsOn ? `0 0 10px ${baseColor}` : "none",
+          }}
+        />
+        <span style={{ color: "#fff", fontWeight: 900, fontSize: "0.92vw", letterSpacing: "0.4px" }}>
+          {id}
+        </span>
+
+        <span
+          style={{
+            fontSize: "0.72vw",
+            fontWeight: 900,
+            padding: "3px 8px",
+            borderRadius: 999,
+            color: lightsOn ? "#0b1220" : "#0b1220",
+            background: lightsOn
+              ? `linear-gradient(135deg, ${baseColor} 0%, rgba(255,255,255,0.85) 140%)`
+              : "linear-gradient(135deg, #94a3b8 0%, rgba(255,255,255,0.75) 140%)",
+          }}
+        >
+          {lightsOn ? "LIVE" : "WAIT"}
+        </span>
       </div>
     </div>
   );
+
 }

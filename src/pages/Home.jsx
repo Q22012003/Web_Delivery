@@ -531,9 +531,16 @@ if (!winnerFullPath || winnerFullPath.length < 2) {
         }}
       >
         {/* CỘT 1: BẢN ĐỒ */}
-        <div style={{ flex: "0 0 auto" }}>
-          <MapGrid v1={v1} v2={v2} />
-        </div>
+{/* CỘT 1: BẢN ĐỒ */}
+<div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center" }}>
+  <MapGrid v1={v1} v2={v2} />
+
+  {/* 2 nút chuyển trang nằm dưới ma trận */}
+  <div style={{ marginTop: 18 }}>
+    <PageSwitchButtons />
+  </div>
+</div>
+
 
         {/* CỘT 2: CONTROLS & LOG */}
         <div
@@ -564,55 +571,61 @@ if (!winnerFullPath || winnerFullPath.length < 2) {
               </div>
             )}
 
-            <div style={{ marginTop: 20, display: "flex", gap: 10, flexDirection: "column" }}>
-              <button
-                onClick={handleManualTest}
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "#22c55e",
-                  color: "#0f172a",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Test nhập kho (+10 vào 5,1)
-              </button>
+{/* === Action Buttons (đồng bộ theme) === */}
+<div style={{ marginTop: 20, display: "flex", gap: 12, flexDirection: "column" }}>
+  <button
+    onClick={handleManualTest}
+    style={{
+      width: "100%",
+      padding: "14px 16px",
+      borderRadius: 14,
+      border: "1px solid rgba(34,197,94,0.35)",
+      background: "linear-gradient(135deg, rgba(34,197,94,0.25), rgba(96,165,250,0.15))",
+      color: "#e2e8f0",
+      fontWeight: 800,
+      letterSpacing: "0.4px",
+      cursor: "pointer",
+      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+    }}
+  >
+    ✅ Test nhập kho (+10 vào 5.1)
+  </button>
 
-              <button
-                onClick={() => navigate("/warehouse")}
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "#60a5fa",
-                  color: "#0f172a",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Qua trang Quản lý kho
-              </button>
+  <button
+    onClick={() => navigate("/warehouse")}
+    style={{
+      width: "100%",
+      padding: "14px 16px",
+      borderRadius: 14,
+      border: "1px solid rgba(96,165,250,0.45)",
+      background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+      color: "#e2e8f0",
+      fontWeight: 800,
+      letterSpacing: "0.4px",
+      cursor: "pointer",
+      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+    }}
+  >
+    📦 Qua trang Quản lý kho
+  </button>
 
-              <button
-                onClick={handleResetApp}
-                style={{
-                  padding: "12px 14px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "#ef4444",
-                  color: "#fff",
-                  fontWeight: 800,
-                  cursor: "pointer",
-                }}
-              >
-                Reset App
-              </button>
-
-              <div style={{ marginTop: 10 }}>
-                <PageSwitchButtons onGoLog={() => navigate("/log")} />
-              </div>
+  <button
+    onClick={handleResetApp}
+    style={{
+      width: "100%",
+      padding: "14px 16px",
+      borderRadius: 14,
+      border: "1px solid rgba(239,68,68,0.45)",
+      background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(239,68,68,0.12))",
+      color: "#fee2e2",
+      fontWeight: 800,
+      letterSpacing: "0.4px",
+      cursor: "pointer",
+      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+    }}
+  >
+    🧹 Reset App
+  </button>
             </div>
           </div>
 
