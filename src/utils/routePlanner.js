@@ -10,7 +10,15 @@ const PARKING_SPOTS = [
 ];
 
 const samePos = (a, b) => a[0] === b[0] && a[1] === b[1];
+const posKey = (p) => `${p[0]},${p[1]}`;
 
+const makeDelayReserved = (pos, delayTicks) => {
+  const s = new Set();
+  for (let t = 0; t <= delayTicks; t++) {
+    s.add(`${posKey(pos)}@${t}`);
+  }
+  return s;
+};
 export function planTwoCarsRoute({
   v1Start,
   v2Start,
@@ -36,25 +44,43 @@ export function planTwoCarsRoute({
   const winnerEnd = winner === "V1" ? v1End : v2End;
   const winnerDelay = winner === "V2" ? v2DelayTicks : 0;
 
-  const winnerPath = findSafePathWithReturn(
-    winnerStart,
-    winnerEnd,
-    [],
-    winnerDelay,
-    [],
-    0,
-    winnerDelay,
-    HOME
-  );
+// ===== khóa vị trí V2 trong lúc delay (để V1 không đi xuyên qua xe đứng yên) =====
+// Lưu ý: V2 luôn là xe có delay trong hệ thống của bạn
+const delayReserved = makeDelayReserved(v2Start, v2DelayTicks);
 
-  if (!winnerPath) return null;
+// ===== 2. PLAN WINNER =====
+// const winnerStart = winner === "V1" ? v1Start : v2Start;
+// const winnerEnd = winner === "V1" ? v1End : v2End;
+// const winnerDelay = winner === "V2" ? v2DelayTicks : 0;
 
-  // ===== 3. RESERVE THEO WINNER =====
-  const reserved = new Set();
-  for (let t = 1; t < winnerPath.length; t++) {
-    const p = winnerPath[t];
-    reserved.add(`${p[0]},${p[1]}@${t}`);
-  }
+// Nếu winner là V1: cần né xe V2 đang đứng yên => truyền delayReserved vào reservedTimes
+// Nếu winner là V2: delayReserved vẫn ok (không gây hại) nhưng không bắt buộc
+const winnerReservedTimes = winner === "V1" ? delayReserved : new Set();
+
+const winnerPath = findSafePathWithReturn(
+  winnerStart,
+  winnerEnd,
+  winnerReservedTimes,
+  winnerDelay,   // timeOffset
+  [],
+  0,
+  winnerDelay,
+  HOME
+);
+
+if (!winnerPath) return null;
+
+// ===== 3. RESERVE THEO WINNER (PHẢI CỘNG OFFSET THỜI GIAN) =====
+const reserved = new Set();
+
+// luôn giữ lại delayReserved để LOSER cũng không đi xuyên qua xe đang đứng yên
+for (const tok of delayReserved) reserved.add(tok);
+
+// reserve đường winner theo đúng timeline: time = winnerDelay + t
+for (let t = 1; t < winnerPath.length; t++) {
+  const p = winnerPath[t];
+  reserved.add(`${p[0]},${p[1]}@${winnerDelay + t}`);
+}
 
   // ===== 4. PLAN LOSER (KHÔNG VỀ 1.1) =====
   const loserStart = loser === "V1" ? v1Start : v2Start;
