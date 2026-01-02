@@ -7,7 +7,7 @@ import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
 import { useNavigate } from "react-router-dom";
-
+import { planTwoCarsRoute } from "../utils/routePlanner";
 import { aStarSearch } from "../utils/aStar";
 import { findSafePathWithReturn } from "../utils/smartPathfinding";
 
@@ -236,198 +236,60 @@ const handleStartTogetherSafe = () => {
     return;
   }
 
+  const result = planTwoCarsRoute({
+    v1Start: v1.pos,
+    v2Start: v2.pos,
+    v1End: v1.endPos,
+    v2End: v2.endPos,
+    v2DelayMs: 3500,
+    v2DelayTicks: 4,
+  });
+
+  if (!result) {
+    addLog("System", 0, "❌ Không tìm được lộ trình an toàn!");
+    return;
+  }
+
   setIsRunningTogether(true);
 
-  const v1StartNow = v1.pos;
-  const v2StartNow = v2.pos;
+  const v1FullPath = result.V1.fullPath;
+  const v2FullPath = result.V2.fullPath;
+  const v2DelayMs = result.V2.delayMs;
 
-  const v2DelayTicks = 4; // tick = 1s => ~4s
-  const v2DelayMs = 3500;
+  // ===== START V1 (ngay) =====
+  setV1((prev) => ({
+    ...prev,
+    path: v1FullPath.slice(1),
+    status: "moving",
+    deliveries: prev.deliveries + 1,
+    tripLog: v1FullPath,
+    activeCargo: amount1,
+  }));
 
-  // ===== Helper: reserve cell X trong [0..delayTicks] =====
-  const buildDelayReserved = (pos, delayTicks) => {
-    const s = new Set();
-    for (let t = 1; t <= delayTicks; t++) {
-      s.add(`${pos[0]},${pos[1]}@${t}`);
-    }
-    return s;
-  };
+  // GIỮ NGUYÊN: lưu lịch sử giao + log
+  saveTripLog("V1", v1.pos, v1.endPos, amount1, v1FullPath);
+  addLog("V1", v1.deliveries + 1, v1FullPath);
 
-  // ===== Helper: nếu path đi qua blockedPos trong các tick đầu => chèn wait ở đầu =====
-  // pathFull có dạng [start,...]
-  const applyWaitToAvoidDelayCell = (pathFull, blockedPos, delayTicks) => {
-    if (!pathFull || pathFull.length < 2) return pathFull;
-    const start = pathFull[0];
-    const isBlocked = (p) => p[0] === blockedPos[0] && p[1] === blockedPos[1];
+  // ===== START V2 (delay 3–4s) =====
+  setTimeout(() => {
+    setV2((prev) => ({
+      ...prev,
+      path: v2FullPath.slice(1),
+      status: "moving",
+      deliveries: prev.deliveries + 1,
+      tripLog: v2FullPath,
+      activeCargo: amount2,
+    }));
 
-    let wait = 0;
-    // giả lập tick theo index: pathFull[t] là vị trí tại tick t
-    // nếu trong t <= delayTicks mà rơi vào cell bị chiếm => tăng wait
-    while (true) {
-      let conflict = false;
-      for (let t = 0; t <= delayTicks; t++) {
-        const idx = t - wait;
-        if (idx >= 0 && idx < pathFull.length) {
-          const posAtT = idx === 0 ? start : pathFull[idx];
-          if (isBlocked(posAtT)) {
-            conflict = true;
-            break;
-          }
-        }
-      }
-      if (!conflict) break;
-      wait++;
-      if (wait > 10) break; // tránh vòng lặp vô hạn (an toàn)
-    }
-
-    if (wait <= 0) return pathFull;
-    // chèn wait bản chất là đứng im tại start trong vài tick
-    const waits = Array.from({ length: wait }, () => start);
-    return [start, ...waits, ...pathFull.slice(1)];
-  };
-
-  // ===== 1) Tính “ai về 1.1 sớm hơn” bằng đường naive =====
-  // (không tránh nhau, chỉ để quyết định winner)
-  const v1Naive = aStarSearch(v1StartNow, v1.endPos, true, HOME);
-  const v2Naive = aStarSearch(v2StartNow, v2.endPos, true, HOME);
-
-  if (!v1Naive || v1Naive.length < 2 || !v2Naive || v2Naive.length < 2) {
-    addLog("System", 0, "Không tìm được đường naive cho 1 trong 2 xe!");
-    setIsRunningTogether(false);
-    return;
-  }
-
-  // thời gian về HOME (tick) ~ (length - 1), cộng delay cho V2
-  const v1HomeETA = v1Naive.length - 1;
-  const v2HomeETA = (v2Naive.length - 1) + v2DelayTicks;
-
-  // Winner = ai ETA nhỏ hơn -> được về 1.1
-  // hòa thì ưu tiên V1
-  const winnerId = v2HomeETA < v1HomeETA ? "V2" : "V1";
-  const loserId = winnerId === "V1" ? "V2" : "V1";
-
-  addLog("System", 0, `Ưu tiên bến 1.1: ${winnerId} (ETA ${winnerId === "V1" ? v1HomeETA : v2HomeETA} tick)`);
-
-  // ===== 2) Plan WINNER về 1.1 (nhưng phải né cell của xe đang delay) =====
-  // - Vì V2 có delay, ta coi cell start của V2 bị chiếm trong [0..delayTicks]
-  //   => nếu winner là V1 thì V1 phải né cell v2StartNow lúc đầu
-  // - Nếu winner là V2 thì V1 vẫn đi trước, nhưng V2 về 1.1; V1 sẽ là LOSER và về parking
-  let winnerStart = winnerId === "V1" ? v1StartNow : v2StartNow;
-  let winnerEnd = winnerId === "V1" ? v1.endPos : v2.endPos;
-
-// Reserve cell của V2 trong thời gian delay để winner né (kể cả lúc winner=V1)
-const delayReserved = new Set();
-for (let t = 0; t <= v2DelayTicks; t++) delayReserved.add(`${v2StartNow[0]},${v2StartNow[1]}@${t}`);
-
-// WINNER cũng plan bằng time-aware + corridor-aware
-const winnerTimeOffset = winnerId === "V2" ? v2DelayTicks : 0;
-
-let winnerFullPath = findSafePathWithReturn(
-  winnerStart,
-  winnerEnd,
-  delayReserved,          // reservedTimes
-  winnerTimeOffset,       // timeOffset
-  [],                     // otherPath (chưa có)
-  0,
-  winnerTimeOffset,
-  HOME                    // returnTarget: winner về 1.1
-);
-
-if (!winnerFullPath || winnerFullPath.length < 2) {
-  addLog("System", 0, `${winnerId} không tìm được đường time-aware về 1.1`);
-  setIsRunningTogether(false);
-  return;
-}
-
-  // ===== 3) Build reservation từ WINNER để LOSER né head-on + node collision =====
-  const reserved = new Set();
-
-  // reserve cell của V2 trong thời gian delay (để ai cũng né)
-  // (đặc biệt tránh V1 đi xuyên qua V2 khi V2 đang delay)
-  for (const token of buildDelayReserved(v2StartNow, v2DelayTicks)) reserved.add(token);
-
-  // reserve theo timeline của winnerFullPath
-  for (let t = 1; t < winnerFullPath.length; t++) {
-    const pos = winnerFullPath[t];
-    reserved.add(`${pos[0]},${pos[1]}@${t}`);
-  }
-
-  // ===== 4) Plan LOSER: đi giao xong -> về bến 1.2..1.5 (không về 1.1) =====
-  const loserStart = loserId === "V1" ? v1StartNow : v2StartNow;
-  const loserEnd = loserId === "V1" ? v1.endPos : v2.endPos;
-
-  const loserDelayTicks = loserId === "V2" ? v2DelayTicks : 0;
-  const loserDelayMs = loserId === "V2" ? v2DelayMs : 0;
-
-  let loserFullPath = null;
-  let chosenPark = null;
-
-  for (const park of PARKING_SPOTS) {
-    // tránh chọn trùng với HOME hoặc trùng winnerStart
-    if (samePos(park, HOME)) continue;
-    if (samePos(park, winnerStart)) continue;
-
-    const candidate = findSafePathWithReturn(
-      loserStart,
-      loserEnd,
-      reserved,
-      loserDelayTicks,     // timeOffset
-      winnerFullPath,      // "otherPath" để né head-on
-      0,
-      loserDelayTicks,
-      park                 // returnTarget: parking
-    );
-
-    if (candidate && candidate.length >= 2) {
-      loserFullPath = candidate;
-      chosenPark = park;
-      break;
-    }
-  }
-
-  if (!loserFullPath) {
-    addLog("System", 0, `${loserId} không tìm được đường an toàn + bến đỗ!`);
-    setIsRunningTogether(false);
-    return;
-  }
-
-  // ===== 5) Start thực tế: V1 luôn chạy trước, V2 delay 3–4s =====
-  // - Nếu winnerId = V2, thì V2 vẫn delay, nhưng mục tiêu về HOME.
-  // - Xe nào được đỗ 1.1 thì path về HOME; xe còn lại về chosenPark.
-  const startVehicle = (id, pathFull, cargo, delayMs) => {
-    const setter = id === "V1" ? setV1 : setV2;
-    const endPos = id === "V1" ? v1.endPos : v2.endPos;
-    const startPos = id === "V1" ? v1StartNow : v2StartNow;
-
-    const run = () => {
-      setter((prev) => ({
-        ...prev,
-        path: pathFull.slice(1),
-        status: "moving",
-        deliveries: prev.deliveries + 1,
-        tripLog: pathFull,
-        activeCargo: cargo,
-      }));
-      saveTripLog(id, startPos, endPos, cargo, pathFull);
-      addLog(id, 0, pathFull);
-    };
-
-    if (delayMs > 0) setTimeout(run, delayMs);
-    else run();
-  };
-
-  // V1 luôn start ngay; V2 start sau delay
-  // -> nên nếu id là V2 thì delayMs = v2DelayMs, còn V1 delayMs=0
-  const v1PathToUse = winnerId === "V1" ? winnerFullPath : loserFullPath;
-  const v2PathToUse = winnerId === "V2" ? winnerFullPath : loserFullPath;
-
-  startVehicle("V1", v1PathToUse, amount1, 0);
-  startVehicle("V2", v2PathToUse, amount2, v2DelayMs);
+    // GIỮ NGUYÊN: lưu lịch sử giao + log
+    saveTripLog("V2", v2.pos, v2.endPos, amount2, v2FullPath);
+    addLog("V2", v2.deliveries + 1, v2FullPath);
+  }, v2DelayMs);
 
   setCargoAmounts({ V1: "", V2: "" });
-
-  if (chosenPark) addLog("System", 0, `${loserId} sẽ về bến đỗ ${chosenPark[0]}.${chosenPark[1]} (không về 1.1)`);
 };
+
+ 
 
 
   // CHỈ CHO SET endPos, KHÔNG CHO SET startPos

@@ -7,16 +7,18 @@ import CollisionAlert from "../components/CollisionAlert";
 import UnifiedControlPanel from "../components/UnifiedControlPanel";
 import DeliveryLog from "../components/DeliveryLog"; 
 import io from "socket.io-client";
-import { aStarSearch } from "../utils/aStar";
+import { planTwoCarsRoute } from "../utils/routePlanner";
+
 
 const SOCKET_SERVER_URL =
   import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
 
 export default function RealTime() {
   const [vehicles, setVehicles] = useState({
-    V1: { id: "V1", pos: [1, 1], status: "idle" },
-    V2: { id: "V2", pos: [1, 1], status: "idle" },
+    V1: { id: "V1", pos: [1, 1], endPos: [5, 3], status: "idle" },
+    V2: { id: "V2", pos: [1, 1], endPos: [5, 5], status: "idle" },
   });
+  
 
   const [cargoAmounts, setCargoAmounts] = useState({ V1: "", V2: "" });
   const [alertMessage, setAlertMessage] = useState("");
@@ -29,6 +31,19 @@ export default function RealTime() {
     const counter = parseInt(localStorage.getItem("realDeliveryCounter") || "0") + 1;
     localStorage.setItem("realDeliveryCounter", counter);
     return `DH${String(counter).padStart(4, "0")}`;
+  };
+  
+  const updateVehicle = (id, field, value) => {
+    // Realtime chỉ cho đổi endPos, KHÔNG cho đổi startPos
+    if (field === "startPos") return;
+  
+    setVehicles((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        [field]: value,
+      },
+    }));
   };
 
   const addLog = (vehicleId, cargo, success = true) => {
@@ -66,43 +81,37 @@ export default function RealTime() {
     return () => clearInterval(interval);
   }, []);
 
-  const sendPathToBackend = async (vehicleId, cargo, customStart = null, customGoal = null) => {
-    const startPos = customStart || vehicles[vehicleId].pos;
-    const goalPos = customGoal || [5, 3]; 
-
-    console.log(`Tính A* từ [${startPos}] đến [${goalPos}]`);
-
-    const rawPath = aStarSearch(startPos, goalPos);
-    const pathToSend = rawPath.length > 0 ? rawPath.slice(1) : [];
-
-    if (pathToSend.length === 0) {
-      setAlertMessage("Đang ở đích hoặc không tìm thấy đường!");
+  const sendPathToBackend = async (vehicleId, fullPath, cargo) => {
+    if (!fullPath || fullPath.length < 2) {
+      setAlertMessage("Lộ trình không hợp lệ!");
       return;
     }
-
-    const formattedPath = pathToSend.map(p => `${p[0]},${p[1]}`);
-    const formattedStartPoint = `${startPos[0]},${startPos[1]}`;
-
+  
+    const toCsv = (p) => `${p[0]},${p[1]}`;
+  
+    const formattedPath = fullPath.map(toCsv);
+    const formattedStartPoint = toCsv(fullPath[0]);
+  
     try {
       await fetch("http://localhost:5000/api/car/navigate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-            vehicle_id: vehicleId,
-            path: formattedPath,
-            cargo: cargo,
-            startPoint: formattedStartPoint
+        body: JSON.stringify({
+          vehicle_id: vehicleId,
+          path: formattedPath,
+          cargo: cargo,
+          startPoint: formattedStartPoint,
         }),
       });
-
+  
       addLog(vehicleId, cargo, true);
-      setAlertMessage(`${vehicleId} bắt đầu chạy từ ${startPos} đến ${goalPos}!`);
+      setAlertMessage(`${vehicleId} đã gửi lộ trình thực tế`);
     } catch (err) {
       console.error("Lỗi gửi lệnh:", err);
       addLog(vehicleId, cargo, false);
-      setAlertMessage("Lỗi kết nối Backend!");
+      setAlertMessage("❌ Lỗi kết nối Backend!");
     } finally {
-      setTimeout(() => setAlertMessage(""), 5000);
+      setTimeout(() => setAlertMessage(""), 4000);
     }
   };
 
@@ -144,21 +153,37 @@ export default function RealTime() {
   const handleStartTogether = () => {
     const v1Cargo = cargoAmounts.V1 || "0";
     const v2Cargo = cargoAmounts.V2 || "0";
+  
     if (vehicles.V1.status === "moving" || vehicles.V2.status === "moving") {
       setAlertMessage("Có xe đang chạy!");
       return;
     }
-    sendPathToBackend("V1", v1Cargo);
-    setTimeout(() => sendPathToBackend("V2", v2Cargo), 1000);
+  
+    const result = planTwoCarsRoute({
+      v1Start: vehicles.V1.pos,
+      v2Start: vehicles.V2.pos,
+      v1End: vehicles.V1.endPos,
+      v2End: vehicles.V2.endPos,
+      v2DelayMs: 3500,
+      v2DelayTicks: 4,
+    });
+  
+    if (!result) {
+      setAlertMessage("❌ Không tìm được lộ trình an toàn!");
+      return;
+    }
+  
+    // ===== GỬI V1 NGAY =====
+    sendPathToBackend("V1", result.V1.fullPath, v1Cargo);
+  
+    // ===== GỬI V2 SAU 3–4s =====
+    setTimeout(() => {
+      sendPathToBackend("V2", result.V2.fullPath, v2Cargo);
+    }, result.V2.delayMs);
+  
     setCargoAmounts({ V1: "", V2: "" });
   };
-
-  const updateVehicle = (id, field, value) => {
-    setVehicles((prev) => ({
-      ...prev,
-      [id]: { ...prev[id], [field]: value },
-    }));
-  };
+  
 
   return (
     <div style={{
