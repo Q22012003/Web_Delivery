@@ -23,30 +23,32 @@ connectToAwsIot();
 
 // --- API NHẬN LỘ TRÌNH (ĐÃ SỬA ĐỂ KHÔNG BỊ LỖI) ---
 app.post("/api/car/navigate", (req, res) => {
-  let { path, startPoint } = req.body;
+  let { vehicle_id, path, startPoint } = req.body;
 
-  // 1. Kiểm tra dữ liệu cơ bản
+  if (!vehicle_id || (vehicle_id !== "V1" && vehicle_id !== "V2")) {
+    return res.status(400).json({ error: "vehicle_id phải là 'V1' hoặc 'V2'" });
+  }
+
   if (!path || !Array.isArray(path) || path.length === 0) {
-    console.log("[API ERROR] Nhận được dữ liệu rỗng hoặc sai định dạng");
+    console.log("[API ERROR] path rỗng hoặc sai định dạng");
     return res.status(400).json({ error: "Cần gửi lên 'path' là một mảng tọa độ" });
   }
 
-  // 2. LOGIC TỰ ĐỘNG XỬ LÝ START POINT
-  // Nếu Web không gửi startPoint, ta lấy luôn điểm đầu của path làm startPoint
+  // Nếu web không gửi startPoint, lấy luôn path[0]
   if (!startPoint) {
-      startPoint = path[0]; 
-      console.log(`[API INFO] Web không gửi startPoint, tự động chọn: ${startPoint}`);
+    startPoint = path[0];
+    console.log(`[API INFO] Web không gửi startPoint, tự chọn: ${startPoint}`);
   }
 
-  // 3. Gọi service để xử lý
   try {
-      startNavigationSequence(path, startPoint);
-      res.json({ success: true, message: `Đã nhận lệnh. Xuất phát từ ${startPoint}` });
+    startNavigationSequence(vehicle_id, path, startPoint);
+    res.json({ success: true, message: `Đã nhận lệnh cho ${vehicle_id}. Xuất phát từ ${startPoint}` });
   } catch (error) {
-      console.error("Lỗi khi gọi startNavigationSequence:", error);
-      res.status(500).json({ error: "Lỗi Server nội bộ" });
+    console.error("Lỗi khi gọi startNavigationSequence:", error);
+    res.status(500).json({ error: "Lỗi Server nội bộ" });
   }
 });
+
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

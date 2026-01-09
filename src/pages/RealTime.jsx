@@ -61,7 +61,10 @@ export default function RealTime() {
     socketRef.current = io(SOCKET_SERVER_URL);
     socketRef.current.on("connect", () => console.log("RealTime connected"));
     socketRef.current.on("car:position", (data) => {
-      const targetVehicle = data.device_id.includes("01") ? "V1" : "V2";
+      const targetVehicle = data.vehicle_id
+      ? data.vehicle_id
+      : (data.device_id?.includes("01") ? "V1" : "V2");
+      if (!targetVehicle || !Array.isArray(data.position)) return;
       setVehicles((prev) => ({
         ...prev,
         [targetVehicle]: { ...prev[targetVehicle], pos: data.position, status: "moving" },
