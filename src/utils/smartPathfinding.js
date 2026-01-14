@@ -263,14 +263,15 @@ function reservePathAll(baseReserved, pathFull, timeOffset = 0, corridorWindow =
     const from = pathFull[i - 1];
     const to = pathFull[i];
     const t = timeOffset + i;
-
+  
+    // ✅ FIX 90°: khóa cả ô rời đi ở tick t
+    baseReserved.add(nodeToken(from, t));
+  
     baseReserved.add(nodeToken(to, t));
     baseReserved.add(edgeToken(from, to, t));
-
+  
     const cid = corridorForMove(from, to);
     if (cid) {
-      // window = 0: chỉ khóa đúng tick di chuyển
-      // window > 0: khóa thêm ±window tick (cực an toàn, tránh sát nút)
       for (let dt = -corridorWindow; dt <= corridorWindow; dt++) {
         const tt = t + dt;
         if (tt >= 0) baseReserved.add(corridorToken(cid, tt));

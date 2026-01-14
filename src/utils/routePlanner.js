@@ -78,8 +78,18 @@ for (const tok of delayReserved) reserved.add(tok);
 
 // reserve đường winner theo đúng timeline: time = winnerDelay + t
 for (let t = 1; t < winnerPath.length; t++) {
-  const p = winnerPath[t];
-  reserved.add(`${p[0]},${p[1]}@${winnerDelay + t}`);
+  const from = winnerPath[t - 1];
+  const to = winnerPath[t];
+  const tt = winnerDelay + t;
+
+  // occupy current cell while moving out (prevents perpendicular/side-swipe at corners)
+  reserved.add(`${from[0]},${from[1]}@${tt}`);
+
+  // occupy destination cell
+  reserved.add(`${to[0]},${to[1]}@${tt}`);
+
+  // prevent crossing/partial overlap during the move
+  reserved.add(`${from[0]},${from[1]}->${to[0]},${to[1]}@${tt}`);
 }
 
   // ===== 4. PLAN LOSER (KHÔNG VỀ 1.1) =====
