@@ -64,9 +64,9 @@ export default function Home() {
   const [v2, setV2] = useState(() =>
     loadSavedState("home_v2_state", {
       id: "V2",
-      startPos: [1, 1], // không dùng để set nữa
+      startPos: [1, 2], // không dùng để set nữa
       endPos: [5, 5],
-      pos: [1, 1],
+      pos: [1, 2],
       path: [],
       status: "idle",
       deliveries: 0,
