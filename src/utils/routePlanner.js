@@ -1,133 +1,167 @@
+// src/utils/routePlanner.js
 import { aStarSearch } from "./aStar";
 import { findSafePathWithReturn } from "./smartPathfinding";
-
+export { planTwoCarsRoute } from "./routePlanner_legacy_twoCars";
 const HOME = [1, 1];
 const PARKING_SPOTS = [
+  [1, 1], // ưu tiên 1.1
   [1, 2],
   [1, 3],
   [1, 4],
   [1, 5],
 ];
 
-const samePos = (a, b) => a[0] === b[0] && a[1] === b[1];
 const posKey = (p) => `${p[0]},${p[1]}`;
+const nodeToken = (pos, t) => `${posKey(pos)}@${t}`;
+const edgeToken = (from, to, t) => `${posKey(from)}->${posKey(to)}@${t}`;
+const corridorToken = (cid, t) => `C:${cid}@${t}`;
 
-const makeDelayReserved = (pos, delayTicks) => {
-  const s = new Set();
-  for (let t = 0; t <= delayTicks; t++) {
-    s.add(`${posKey(pos)}@${t}`);
+// ===== corridorForMove copy theo smartPathfinding.js để reserve corridor giống logic cũ =====
+function corridorForMove(from, to) {
+  if (!from || !to) return null;
+  const [r1, c1] = from;
+  const [r2, c2] = to;
+
+  // wait không khóa corridor
+  if (r1 === r2 && c1 === c2) return null;
+
+  if (r1 === 1 && r2 === 1) return "ROW1_1_5";
+  if (r1 === 5 && r2 === 5) return "ROW5_1_5";
+  if (c1 === 1 && c2 === 1 && r1 >= 2 && r2 >= 2) return "COL1_2_5";
+  if (c1 === 5 && c2 === 5 && r1 >= 2 && r2 >= 2) return "COL5_2_5";
+
+  const inMid = (r, c) => r >= 2 && r <= 4 && c >= 2 && c <= 4;
+  if (inMid(r1, c1) && inMid(r2, c2)) {
+    if (r1 === r2) return `MID_ROW${r1}_2_4`;
+    if (c1 === c2) return `MID_COL${c1}_2_4`;
   }
-  return s;
-};
-export function planTwoCarsRoute({
-  v1Start,
-  v2Start,
-  v1End,
-  v2End,
-  v2DelayMs = 3500,
-  v2DelayTicks = 4,
-}) {
-  // ===== 1. TÍNH AI VỀ 1.1 TRƯỚC (naive) =====
-  const v1Naive = aStarSearch(v1Start, v1End, true, HOME);
-  const v2Naive = aStarSearch(v2Start, v2End, true, HOME);
-
-  if (!v1Naive || !v2Naive) return null;
-
-  const v1ETA = v1Naive.length - 1;
-  const v2ETA = (v2Naive.length - 1) + v2DelayTicks;
-
-  const winner = v2ETA < v1ETA ? "V2" : "V1";
-  const loser = winner === "V1" ? "V2" : "V1";
-
-  // ===== 2. PLAN WINNER =====
-  const winnerStart = winner === "V1" ? v1Start : v2Start;
-  const winnerEnd = winner === "V1" ? v1End : v2End;
-  const winnerDelay = winner === "V2" ? v2DelayTicks : 0;
-
-// ===== khóa vị trí V2 trong lúc delay (để V1 không đi xuyên qua xe đứng yên) =====
-// Lưu ý: V2 luôn là xe có delay trong hệ thống của bạn
-const delayReserved = makeDelayReserved(v2Start, v2DelayTicks);
-
-// ===== 2. PLAN WINNER =====
-// const winnerStart = winner === "V1" ? v1Start : v2Start;
-// const winnerEnd = winner === "V1" ? v1End : v2End;
-// const winnerDelay = winner === "V2" ? v2DelayTicks : 0;
-
-// Nếu winner là V1: cần né xe V2 đang đứng yên => truyền delayReserved vào reservedTimes
-// Nếu winner là V2: delayReserved vẫn ok (không gây hại) nhưng không bắt buộc
-const winnerReservedTimes = winner === "V1" ? delayReserved : new Set();
-
-const winnerPath = findSafePathWithReturn(
-  winnerStart,
-  winnerEnd,
-  winnerReservedTimes,
-  winnerDelay,   // timeOffset
-  [],
-  0,
-  winnerDelay,
-  HOME
-);
-
-if (!winnerPath) return null;
-
-// ===== 3. RESERVE THEO WINNER (PHẢI CỘNG OFFSET THỜI GIAN) =====
-const reserved = new Set();
-
-// luôn giữ lại delayReserved để LOSER cũng không đi xuyên qua xe đang đứng yên
-for (const tok of delayReserved) reserved.add(tok);
-
-// reserve đường winner theo đúng timeline: time = winnerDelay + t
-for (let t = 1; t < winnerPath.length; t++) {
-  const from = winnerPath[t - 1];
-  const to = winnerPath[t];
-  const tt = winnerDelay + t;
-
-  // occupy current cell while moving out (prevents perpendicular/side-swipe at corners)
-  reserved.add(`${from[0]},${from[1]}@${tt}`);
-
-  // occupy destination cell
-  reserved.add(`${to[0]},${to[1]}@${tt}`);
-
-  // prevent crossing/partial overlap during the move
-  reserved.add(`${from[0]},${from[1]}->${to[0]},${to[1]}@${tt}`);
+  return null;
 }
 
-  // ===== 4. PLAN LOSER (KHÔNG VỀ 1.1) =====
-  const loserStart = loser === "V1" ? v1Start : v2Start;
-  const loserEnd = loser === "V1" ? v1End : v2End;
-  const loserDelay = loser === "V2" ? v2DelayTicks : 0;
+function reservePathAll(reserved, fullPath, timeOffset = 0, corridorWindow = 1) {
+  if (!fullPath || fullPath.length < 2) return;
 
-  let loserPath = null;
-  for (const park of PARKING_SPOTS) {
-    if (samePos(park, HOME)) continue;
+  for (let i = 1; i < fullPath.length; i++) {
+    const from = fullPath[i - 1];
+    const to = fullPath[i];
+    const t = timeOffset + i;
 
-    const candidate = findSafePathWithReturn(
-      loserStart,
-      loserEnd,
-      reserved,
-      loserDelay,
-      winnerPath,
-      0,
-      loserDelay,
-      park
-    );
+    // node occupy (fix 90°)
+    reserved.add(nodeToken(from, t));
+    reserved.add(nodeToken(to, t));
 
-    if (candidate) {
-      loserPath = candidate;
-      break;
+    // edge occupy
+    reserved.add(edgeToken(from, to, t));
+
+    // corridor occupy (window)
+    const cid = corridorForMove(from, to);
+    if (cid) {
+      for (let dt = -corridorWindow; dt <= corridorWindow; dt++) {
+        const tt = t + dt;
+        if (tt >= 0) reserved.add(corridorToken(cid, tt));
+      }
     }
   }
-
-  if (!loserPath) return null;
-
-  return {
-    V1: {
-      fullPath: winner === "V1" ? winnerPath : loserPath,
-      delayMs: 0,
-    },
-    V2: {
-      fullPath: winner === "V2" ? winnerPath : loserPath,
-      delayMs: v2DelayMs,
-    },
-  };
 }
+
+function reserveDelayAtStart(reserved, startPos, delayTicks) {
+  for (let t = 0; t <= delayTicks; t++) reserved.add(nodeToken(startPos, t));
+}
+
+// Giữ chỗ bến đỗ sau khi về (xe đứng yên) để xe sau không lao vào
+function reserveHold(reserved, finalPos, fromTime, holdTicks = 80) {
+  for (let t = fromTime; t <= fromTime + holdTicks; t++) reserved.add(nodeToken(finalPos, t));
+}
+
+function estimateETA(start, end, delayTicks) {
+  const naive = aStarSearch(start, end, true, HOME);
+  if (!naive || naive.length < 2) return Number.POSITIVE_INFINITY;
+  return (naive.length - 1) + delayTicks;
+}
+
+function pickReturnTargetByPreference(preferredOrder, reserved, etaApprox) {
+  // Chọn bến có “ít nguy cơ” nhất: thử lần lượt 1.1 -> 1.2 -> ...,
+  // kiểm tra xem tại thời điểm etaApprox nó có bị reserve không.
+  for (const spot of preferredOrder) {
+    const tok = nodeToken(spot, etaApprox);
+    if (!reserved.has(tok)) return spot;
+  }
+  return preferredOrder[preferredOrder.length - 1];
+}
+
+/**
+ * planMultiCarsRoute
+ * vehicles: [{ id, startPos, endPos, delayTicks }]
+ * tickSeconds: 1 tick = 1s (Home của bạn chạy interval 1000ms)
+ */
+export function planMultiCarsRoute({
+  vehicles,
+  baseDelayTicks = 4,
+  baseDelayMs = 3500,
+  maxCars = 5,
+}) {
+  if (!Array.isArray(vehicles) || vehicles.length === 0) return null;
+
+  const list = vehicles.slice(0, maxCars).map((v, idx) => ({
+    ...v,
+    order: idx,
+    delayTicks: idx === 0 ? 0 : (v.delayTicks ?? idx * baseDelayTicks),
+    delayMs: idx === 0 ? 0 : (v.delayMs ?? idx * baseDelayMs),
+  }));
+
+  // ưu tiên V1..Vn theo index (đúng yêu cầu)
+  const reserved = new Set();
+  const results = {};
+
+  // reserve luôn “delay” của các xe đứng yên ở start (để xe trước không đi xuyên qua)
+  for (const v of list) reserveDelayAtStart(reserved, v.startPos, v.delayTicks);
+
+  // Lập kế hoạch lần lượt theo thứ tự (Prioritized Planning)
+  for (const v of list) {
+    const start = v.startPos;
+    const goal = v.endPos;
+    const timeOffset = v.delayTicks;
+
+    // ước lượng ETA để chọn bến đỗ hợp lý (ưu tiên 1.1)
+    const etaApprox = estimateETA(start, goal, timeOffset);
+
+    // thử return target theo ưu tiên (1.1 trước)
+    const preferredReturn = PARKING_SPOTS;
+    const chosenReturn = pickReturnTargetByPreference(preferredReturn, reserved, etaApprox);
+
+    const fullPath = findSafePathWithReturn(
+      start,
+      goal,
+      reserved,         // reservedTimes
+      timeOffset,       // timeOffset
+      [],               // otherPath (đã dồn vào reserved nên không cần)
+      0,
+      0,
+      chosenReturn      // returnTarget
+    );
+
+    if (!fullPath || fullPath.length < 2) {
+      return null; // fail toàn bộ nếu 1 xe không có đường an toàn
+    }
+
+    // reserve path theo timeline
+    reservePathAll(reserved, fullPath, timeOffset, 1);
+
+    // reserve “hold” tại bến đỗ
+    const arrivalT = timeOffset + (fullPath.length - 1);
+    const finalPos = fullPath[fullPath.length - 1];
+    reserveHold(reserved, finalPos, arrivalT, 120);
+
+    results[v.id] = {
+      fullPath,
+      delayMs: v.delayMs,
+      delayTicks: v.delayTicks,
+      returnTarget: finalPos,
+    };
+  }
+
+  return results;
+}
+
+// ===== GIỮ LẠI API CŨ CHO 2 XE (không phá code cũ nếu bạn còn chỗ khác dùng) =====
+

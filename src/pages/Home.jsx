@@ -1,87 +1,89 @@
 // src/pages/Home.jsx
 import { useState, useEffect } from "react";
 import MapGrid from "../components/MapGrid";
-import UnifiedControlPanel from "../components/UnifiedControlPanel";
 import ClockDisplay from "../components/ClockDisplay";
 import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
 import { useNavigate } from "react-router-dom";
-import { planTwoCarsRoute } from "../utils/routePlanner";
-import { aStarSearch } from "../utils/aStar";
-import { findSafePathWithReturn } from "../utils/smartPathfinding";
 
+import ControlPanel from "../components/ControlPanel"; // bạn đang có file này
+import { aStarSearch } from "../utils/aStar";
+import { planMultiCarsRoute } from "../utils/routePlanner";
+
+// ===== helpers =====
 const loadSavedState = (key, defaultValue) => {
   const saved = localStorage.getItem(key);
   try {
     return saved ? JSON.parse(saved) : defaultValue;
-  } catch (e) {
+  } catch {
     return defaultValue;
   }
 };
 
-export default function Home() {
-  const [isRunningTogether, setIsRunningTogether] = useState(false);
-  const [cargoAmounts, setCargoAmounts] = useState({ V1: "", V2: "" });
-  const [alertMessage, setAlertMessage] = useState("");
+const buildDefaultVehicles = () => ([
+  makeVehicle("V1", START_SPOTS[0], [5, 3]),
+  makeVehicle("V2", START_SPOTS[1], [5, 5]),
+]);
 
+const buildDefaultCargo = () => ({ V1: "", V2: "" });
+
+const HOME = [1, 1];
+const START_SPOTS = [
+  [1, 1], // V1
+  [1, 2], // V2
+  [1, 3], // V3
+  [1, 4], // V4
+  [1, 5], // V5
+];
+
+const PARKING_SPOTS = [
+  [1, 2],
+  [1, 3],
+  [1, 4],
+  [1, 5],
+];
+
+const samePos = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+const posKey = (p) => `${p[0]},${p[1]}`;
+
+function makeVehicle(id, startPos, endPos) {
+  return {
+    id,
+    startPos, // để tương thích UI cũ (nhưng sẽ disabled chọn start)
+    endPos,
+    pos: startPos,
+    path: [],
+    status: "idle",
+    deliveries: 0,
+    tripLog: null,
+    activeCargo: 0,
+    prevPos: null,
+  };
+}
+
+export default function Home() {
   const navigate = useNavigate();
 
-  // ===== RULES =====
-  const HOME = [1, 1];
-  const PARKING_SPOTS = [
-    [1, 2],
-    [1, 3],
-    [1, 4],
-    [1, 5],
-  ];
-  const samePos = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+  const [alertMessage, setAlertMessage] = useState("");
+  const [isRunningTogether, setIsRunningTogether] = useState(false);
 
-  const pickParkingSpot = (occupied = []) => {
-    const occ = new Set(occupied.map((p) => `${p[0]},${p[1]}`));
-    for (const p of PARKING_SPOTS) {
-      if (!occ.has(`${p[0]},${p[1]}`)) return p;
-    }
-    return PARKING_SPOTS[PARKING_SPOTS.length - 1];
-  };
-
-  // === State xe V1 ===
-  const [v1, setV1] = useState(() =>
-    loadSavedState("home_v1_state", {
-      id: "V1",
-      startPos: [1, 1], // không dùng để set nữa, giữ để tương thích state cũ
-      endPos: [5, 3],
-      pos: [1, 1],
-      path: [],
-      status: "idle",
-      deliveries: 0,
-      tripLog: null,
-      activeCargo: 0,
-    })
+  // ===== vehicles: mặc định 2 xe =====
+  const [vehicles, setVehicles] = useState(() =>
+    loadSavedState("home_vehicles_state", buildDefaultVehicles())
   );
 
-  // === State xe V2 ===
-  const [v2, setV2] = useState(() =>
-    loadSavedState("home_v2_state", {
-      id: "V2",
-      startPos: [1, 2], // không dùng để set nữa
-      endPos: [5, 5],
-      pos: [1, 2],
-      path: [],
-      status: "idle",
-      deliveries: 0,
-      tripLog: null,
-      activeCargo: 0,
-    })
+  const [cargoAmounts, setCargoAmounts] = useState(() =>
+    loadSavedState("home_cargoAmounts", buildDefaultCargo())
   );
 
   const [logs, setLogs] = useState(() => loadSavedState("home_logs", []));
 
   useEffect(() => {
-    localStorage.setItem("home_v1_state", JSON.stringify(v1));
-    localStorage.setItem("home_v2_state", JSON.stringify(v2));
+    localStorage.setItem("home_vehicles_state", JSON.stringify(vehicles));
+    localStorage.setItem("home_cargoAmounts", JSON.stringify(cargoAmounts));
     localStorage.setItem("home_logs", JSON.stringify(logs));
-  }, [v1, v2, logs]);
+  }, [vehicles, cargoAmounts, logs]);
 
   const addLog = (id, deliveries, pathOrMessage) => {
     const now = new Date().toLocaleString("vi-VN", {
@@ -152,53 +154,85 @@ export default function Home() {
     }
   };
 
-  // =========================
-  // START 1 XE
-  // - start = vị trí hiện tại
-  // - return ưu tiên 1.1
-  // - nếu xe còn lại idle ở 1.1 => đẩy sang 1.2..1.5 để tránh va chạm
-  // =========================
-  const handleStart = (id, delay = 0) => {
+  // ===== utils: parking =====
+  const pickParkingSpot = (occupiedPositions = []) => {
+    const occ = new Set(occupiedPositions.map((p) => posKey(p)));
+    for (const p of PARKING_SPOTS) if (!occ.has(posKey(p))) return p;
+    return PARKING_SPOTS[PARKING_SPOTS.length - 1];
+  };
+
+  const moveVehicleById = (id, updater) => {
+    setVehicles((prev) => prev.map((v) => (v.id === id ? updater(v) : v)));
+  };
+
+  // ===== ADD VEHICLE (tối đa 5) =====
+  const handleAddVehicle = () => {
+    setVehicles((prev) => {
+      if (prev.length >= 5) {
+        alert("⚠️ Tối đa 5 xe trên ma trận!");
+        return prev;
+      }
+      const nextIndex = prev.length; // 0-based
+      const newId = `V${nextIndex + 1}`;
+      const startPos = START_SPOTS[nextIndex]; // V3 at 1.3, V4 at 1.4, V5 at 1.5
+      const defaultEnd = [5, Math.min(5, nextIndex + 1)]; // gợi ý 5.3/5.4/5.5...
+      const next = [...prev, makeVehicle(newId, startPos, defaultEnd)];
+      // init cargo key
+      setCargoAmounts((c) => ({ ...c, [newId]: "" }));
+      addLog("System", 0, `➕ Đã thêm xe ${newId} tại ${startPos[0]}.${startPos[1]}`);
+      return next;
+    });
+  };
+
+  // ===== UPDATE endPos only (lock startPos) =====
+  const updateVehicle = (vehicleId, field, value) => {
+    if (field === "startPos") return;
+    moveVehicleById(vehicleId, (v) => ({ ...v, [field]: value }));
+  };
+
+  // ===== START SINGLE (A* riêng lẻ) =====
+  const handleStartSingle = (vehicleId, delay = 0) => {
     setTimeout(() => {
-      const vehicle = id === "V1" ? v1 : v2;
-      const setVehicle = id === "V1" ? setV1 : setV2;
+      const current = vehicles.find((v) => v.id === vehicleId);
+      if (!current) return;
 
-      const other = id === "V1" ? v2 : v1;
-      const setOther = id === "V1" ? setV2 : setV1;
-
-      const amount = parseInt(cargoAmounts[id]);
+      const amount = parseInt(cargoAmounts[vehicleId]);
       if (!amount || amount <= 0) {
-        alert(`⚠️ Vui lòng nhập số lượng hàng cho xe ${id} > 0`);
+        alert(`⚠️ Vui lòng nhập số lượng hàng cho xe ${vehicleId} > 0`);
         return;
       }
-      if (vehicle.status === "moving") return;
+      if (current.status === "moving") return;
 
-      const startNow = vehicle.pos;
+      // nếu có xe khác idle ở 1.1 => đẩy sang bến đỗ để tránh xe này quay về
+      const others = vehicles.filter((v) => v.id !== vehicleId);
+      const occupied = vehicles.map((v) => v.pos);
 
-      // Nếu xe còn lại đang đứng yên ở 1.1 thì đẩy sang bến để tránh đụng lúc xe này quay về
-      if (other.status !== "moving" && samePos(other.pos, HOME)) {
-        const park = pickParkingSpot([startNow]);
-        const parkPath = aStarSearch(other.pos, park, false);
-        if (parkPath && parkPath.length > 1) {
-          setOther((prev) => ({
-            ...prev,
-            path: parkPath.slice(1),
-            status: "moving",
-            tripLog: parkPath,
-            activeCargo: 0,
-          }));
-          addLog(other.id, 0, `Di chuyển sang bến đỗ ${park[0]}.${park[1]} để tránh va chạm`);
+      const blocking = others.filter((v) => v.status !== "moving" && samePos(v.pos, HOME));
+      if (blocking.length > 0) {
+        for (const b of blocking) {
+          const park = pickParkingSpot(occupied);
+          const parkPath = aStarSearch(b.pos, park, false);
+          if (parkPath && parkPath.length > 1) {
+            moveVehicleById(b.id, (prev) => ({
+              ...prev,
+              path: parkPath.slice(1),
+              status: "moving",
+              tripLog: parkPath,
+              activeCargo: 0,
+            }));
+            addLog(b.id, 0, `Di chuyển sang bến đỗ ${park[0]}.${park[1]} để tránh va chạm`);
+          }
         }
       }
 
-      // đi giao xong -> quay về 1.1
-      const fullPath = aStarSearch(startNow, vehicle.endPos, true, HOME);
+      // A* đi giao xong quay về 1.1
+      const fullPath = aStarSearch(current.pos, current.endPos, true, HOME);
       if (!fullPath || fullPath.length < 2) {
-        alert(`Xe ${id}: Không tìm thấy đường!`);
+        alert(`Xe ${vehicleId}: Không tìm thấy đường!`);
         return;
       }
 
-      setVehicle((prev) => ({
+      moveVehicleById(vehicleId, (prev) => ({
         ...prev,
         path: fullPath.slice(1),
         status: "moving",
@@ -207,152 +241,202 @@ export default function Home() {
         activeCargo: amount,
       }));
 
-      saveTripLog(id, startNow, vehicle.endPos, amount, fullPath);
-      addLog(id, vehicle.deliveries + 1, fullPath);
+      saveTripLog(vehicleId, current.pos, current.endPos, amount, fullPath);
+      addLog(vehicleId, current.deliveries + 1, fullPath);
     }, delay);
   };
 
-// =========================
-// START 2 XE (ổn định)
-// - V1 vẫn chạy trước (delay cho V2 giữ nguyên 3–4s)
-// - Nhưng: AI VỀ 1.1 SỚM HƠN => được đỗ 1.1
-// - Xe còn lại => phải đỗ 1.2..1.5
-// - Cấm đi vào cell của xe đang delay (tránh tông ngay lúc xuất phát)
-// =========================
-const handleStartTogetherSafe = () => {
-  const amount1 = parseInt(cargoAmounts.V1);
-  const amount2 = parseInt(cargoAmounts.V2);
+  // ===== START TOGETHER (N xe) =====
+  const handleStartTogetherSafeMulti = () => {
+    // validate cargo + status
+    for (const v of vehicles) {
+      const amount = parseInt(cargoAmounts[v.id]);
+      if (!amount || amount <= 0) {
+        alert(`⚠️ Vui lòng nhập số lượng cho ${v.id} > 0`);
+        return;
+      }
+      if (v.status === "moving") {
+        alert("Có xe đang chạy, vui lòng chờ.");
+        return;
+      }
+    }
 
-  if (!amount1 || amount1 <= 0) {
-    alert("⚠️ Vui lòng nhập số lượng cho V1 > 0");
-    return;
-  }
-  if (!amount2 || amount2 <= 0) {
-    alert("⚠️ Vui lòng nhập số lượng cho V2 > 0");
-    return;
-  }
-  if (v1.status === "moving" || v2.status === "moving") {
-    alert("Xe đang chạy, vui lòng chờ.");
-    return;
-  }
+    setIsRunningTogether(true);
 
-  const result = planTwoCarsRoute({
-    v1Start: v1.pos,
-    v2Start: v2.pos,
-    v1End: v1.endPos,
-    v2End: v2.endPos,
-    v2DelayMs: 3500,
-    v2DelayTicks: 4,
-  });
-
-  if (!result) {
-    addLog("System", 0, "❌ Không tìm được lộ trình an toàn!");
-    return;
-  }
-
-  setIsRunningTogether(true);
-
-  const v1FullPath = result.V1.fullPath;
-  const v2FullPath = result.V2.fullPath;
-  const v2DelayMs = result.V2.delayMs;
-
-  // ===== START V1 (ngay) =====
-  setV1((prev) => ({
-    ...prev,
-    path: v1FullPath.slice(1),
-    status: "moving",
-    deliveries: prev.deliveries + 1,
-    tripLog: v1FullPath,
-    activeCargo: amount1,
-  }));
-
-  // GIỮ NGUYÊN: lưu lịch sử giao + log
-  saveTripLog("V1", v1.pos, v1.endPos, amount1, v1FullPath);
-  addLog("V1", v1.deliveries + 1, v1FullPath);
-
-  // ===== START V2 (delay 3–4s) =====
-  setTimeout(() => {
-    setV2((prev) => ({
-      ...prev,
-      path: v2FullPath.slice(1),
-      status: "moving",
-      deliveries: prev.deliveries + 1,
-      tripLog: v2FullPath,
-      activeCargo: amount2,
+    const planInput = vehicles.map((v, idx) => ({
+      id: v.id,
+      startPos: v.pos,
+      endPos: v.endPos,
+      // delayTicks/delayMs sẽ được set tự động theo thứ tự
     }));
 
-    // GIỮ NGUYÊN: lưu lịch sử giao + log
-    saveTripLog("V2", v2.pos, v2.endPos, amount2, v2FullPath);
-    addLog("V2", v2.deliveries + 1, v2FullPath);
-  }, v2DelayMs);
+    const result = planMultiCarsRoute({
+      vehicles: planInput,
+      baseDelayTicks: 4,
+      baseDelayMs: 3500, // V2 3–4s, V3 7s, V4 10.5s, V5 14s
+      maxCars: 5,
+    });
 
-  setCargoAmounts({ V1: "", V2: "" });
-};
+    if (!result) {
+      addLog("System", 0, "❌ Không tìm được lộ trình an toàn cho tất cả xe!");
+      setIsRunningTogether(false);
+      return;
+    }
 
- 
+    // start theo delay
+    for (const v of vehicles) {
+      const amount = parseInt(cargoAmounts[v.id]);
+      const pack = result[v.id];
+      if (!pack) continue;
 
+      const startFn = () => {
+        moveVehicleById(v.id, (prev) => ({
+          ...prev,
+          path: pack.fullPath.slice(1),
+          status: "moving",
+          deliveries: prev.deliveries + 1,
+          tripLog: pack.fullPath,
+          activeCargo: amount,
+        }));
+        saveTripLog(v.id, v.pos, v.endPos, amount, pack.fullPath);
+        addLog(v.id, (v.deliveries || 0) + 1, pack.fullPath);
+      };
 
-  // CHỈ CHO SET endPos, KHÔNG CHO SET startPos
-  const updateVehicle = (id, field, value) => {
-    if (field === "startPos") return; // khóa start
-    const setVehicle = id === "V1" ? setV1 : setV2;
-    setVehicle((prev) => ({ ...prev, [field]: value }));
+      if (pack.delayMs > 0) setTimeout(startFn, pack.delayMs);
+      else startFn();
+    }
+
+    // clear cargo
+    const cleared = {};
+    for (const v of vehicles) cleared[v.id] = "";
+    setCargoAmounts((prev) => ({ ...prev, ...cleared }));
   };
 
-  // ===== Tick chạy xe =====
+  // ===== Tick chạy xe (N xe) =====
   useEffect(() => {
     const interval = setInterval(() => {
-      [
-        [v1, setV1],
-        [v2, setV2],
-      ].forEach(([vehicle, setVehicle]) => {
-        if (vehicle.path.length > 0) {
+      setVehicles((prev) =>
+        prev.map((vehicle) => {
+          if (!vehicle.path || vehicle.path.length === 0) return vehicle;
+
           const nextPos = vehicle.path[0];
           const isAtDestination =
             nextPos[0] === vehicle.endPos[0] && nextPos[1] === vehicle.endPos[1];
 
           let currentCargo = vehicle.activeCargo;
-
           if (isAtDestination && currentCargo > 0) {
             updateInventoryStorage(nextPos, currentCargo, vehicle.id);
             currentCargo = 0;
           }
 
-          setVehicle((prev) => ({
-            ...prev,
-            prevPos: prev.pos,
+          const nextPath = vehicle.path.slice(1);
+          const nextStatus = vehicle.path.length === 1 ? "idle" : "moving";
+
+          return {
+            ...vehicle,
+            prevPos: vehicle.pos,
             pos: nextPos,
-            path: prev.path.slice(1),
-            status: prev.path.length === 1 ? "idle" : "moving",
+            path: nextPath,
+            status: nextStatus,
             activeCargo: currentCargo,
-          }));
-        }
-      });
+          };
+        })
+      );
     }, 1000);
+
     return () => clearInterval(interval);
-  }, [v1.path, v2.path]);
+  }, [vehicles]);
 
-  // cảnh báo trùng line (giữ lại)
+  // ===== Simple collision warning (đa xe) =====
   useEffect(() => {
-    if (v1.tripLog && v2.tripLog) {
-      const v1Cells = new Set(v1.tripLog.map((p) => `${p[0]},${p[1]}`));
-      const v2Cells = new Set(v2.tripLog.map((p) => `${p[0]},${p[1]}`));
-      const common = [...v1Cells].filter((c) => v2Cells.has(c));
-      if (common.length > 2) setAlertMessage(`CẢNH BÁO: Trùng ${common.length - 2} bước di chuyển!`);
-      else setAlertMessage("");
+    // cảnh báo nếu nhiều xe có tripLog trùng quá nhiều cell (naive)
+    const tripLogs = vehicles.filter((v) => v.tripLog && v.tripLog.length > 0);
+    if (tripLogs.length < 2) {
+      setAlertMessage("");
+      return;
     }
-  }, [v1.tripLog, v2.tripLog]);
+
+    let maxCommon = 0;
+    let pair = null;
+
+    for (let i = 0; i < tripLogs.length; i++) {
+      for (let j = i + 1; j < tripLogs.length; j++) {
+        const a = tripLogs[i];
+        const b = tripLogs[j];
+        const aSet = new Set(a.tripLog.map((p) => `${p[0]},${p[1]}`));
+        const bSet = new Set(b.tripLog.map((p) => `${p[0]},${p[1]}`));
+        const common = [...aSet].filter((c) => bSet.has(c));
+        if (common.length > maxCommon) {
+          maxCommon = common.length;
+          pair = [a.id, b.id];
+        }
+      }
+    }
+
+    if (maxCommon > 2 && pair) setAlertMessage(`CẢNH BÁO: ${pair[0]} & ${pair[1]} trùng ${maxCommon - 2} bước!`);
+    else setAlertMessage("");
+  }, [vehicles]);
 
   useEffect(() => {
-    if (v1.status === "idle" && v2.status === "idle" && isRunningTogether) setIsRunningTogether(false);
-  }, [v1.status, v2.status, isRunningTogether]);
+    if (isRunningTogether) {
+      const allIdle = vehicles.every((v) => v.status === "idle");
+      if (allIdle) setIsRunningTogether(false);
+    }
+  }, [vehicles, isRunningTogether]);
 
   const handleResetApp = () => {
-    if (confirm("Reset toàn bộ trạng thái về mặc định?")) {
-      localStorage.clear();
-      window.location.reload();
-    }
+    if (!confirm("Reset toàn bộ trạng thái về mặc định (2 xe V1, V2)?")) return;
+  
+    // clear các key bạn đang lưu
+    localStorage.removeItem("home_vehicles_state");
+    localStorage.removeItem("home_cargoAmounts");
+    localStorage.removeItem("home_logs");
+    localStorage.removeItem("deliveryCounter");
+    localStorage.removeItem("tripLogs");
+    localStorage.removeItem("warehouse_stock");
+  
+    // reset state tại chỗ (không cần reload)
+    setVehicles(buildDefaultVehicles());
+    setCargoAmounts(buildDefaultCargo());
+    setLogs([]);
+  
+    setIsRunningTogether(false);
+    setAlertMessage("");
   };
+
+  const handleRemoveVehicle = (vehicleId) => {
+    // Nếu bạn muốn cho phép xóa cả V1/V2 thì bỏ block này.
+    if (vehicleId === "V1" || vehicleId === "V2") {
+      alert("Không thể xóa V1/V2. Bạn có thể Reset App để về mặc định.");
+      return;
+    }
+  
+    const v = vehicles.find((x) => x.id === vehicleId);
+    if (!v) return;
+  
+    if (v.status === "moving") {
+      alert(`Xe ${vehicleId} đang chạy, không thể xóa.`);
+      return;
+    }
+  
+    if (!confirm(`Bạn chắc chắn muốn xóa xe ${vehicleId} không?`)) return;
+  
+    // Xóa xe khỏi danh sách
+    setVehicles((prev) => prev.filter((x) => x.id !== vehicleId));
+  
+    // Xóa cargo của xe đó
+    setCargoAmounts((prev) => {
+      const next = { ...prev };
+      delete next[vehicleId];
+      return next;
+    });
+  
+    addLog("System", 0, `🗑️ Đã xóa xe ${vehicleId}`);
+  };
+  
+  // ===== Map props: giữ v1/v2 để tương thích MapGrid cũ =====
+  const v1 = vehicles.find((v) => v.id === "V1");
+  const v2 = vehicles.find((v) => v.id === "V2");
 
   return (
     <div
@@ -393,16 +477,12 @@ const handleStartTogetherSafe = () => {
         }}
       >
         {/* CỘT 1: BẢN ĐỒ */}
-{/* CỘT 1: BẢN ĐỒ */}
-<div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center" }}>
-  <MapGrid v1={v1} v2={v2} />
-
-  {/* 2 nút chuyển trang nằm dưới ma trận */}
-  <div style={{ marginTop: 18 }}>
-    <PageSwitchButtons />
-  </div>
-</div>
-
+        <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
+          <div style={{ marginTop: 18 }}>
+            <PageSwitchButtons />
+          </div>
+        </div>
 
         {/* CỘT 2: CONTROLS & LOG */}
         <div
@@ -416,84 +496,190 @@ const handleStartTogetherSafe = () => {
           }}
         >
           {/* A. Bảng điều khiển */}
-          <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-            <UnifiedControlPanel
-              v1={v1}
-              v2={v2}
-              cargoAmounts={cargoAmounts}
-              setCargoAmounts={setCargoAmounts}
-              onChange={updateVehicle}
-              onStart={handleStart}
-              onStartTogether={handleStartTogetherSafe}
-            />
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "clamp(720px, 52vw, 980px)" }}>
+            {/* Button thêm xe */}
+            <button
+              onClick={handleAddVehicle}
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                borderRadius: 14,
+                border: "1px solid rgba(96,165,250,0.45)",
+                background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                color: "#e2e8f0",
+                fontWeight: 900,
+                letterSpacing: "0.4px",
+                cursor: "pointer",
+                boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                marginBottom: 14,
+              }}
+            >
+              ➕ Thêm xe (tối đa 5)
+            </button>
+
+            {/* Panels từng xe */}
+            <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+    gap: 16,
+    width: "100%",
+    alignItems: "stretch",
+    overflowY: "auto",
+    paddingRight: 8,
+  }}
+>
+{vehicles.map((v) => (
+ <div key={v.id} style={{ background: "#fff", borderRadius: 14, padding: 14 }}>
+ <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+   <div style={{ fontWeight: 900, color: "#0f172a" }}>{v.id}</div>
+
+   <button
+     onClick={() => handleRemoveVehicle(v.id)}
+     disabled={v.id === "V1" || v.id === "V2"}
+     style={{
+       padding: "6px 10px",
+       borderRadius: 10,
+       border: "1px solid rgba(239,68,68,0.35)",
+       background: v.id === "V1" || v.id === "V2" ? "#e2e8f0" : "rgba(239,68,68,0.12)",
+       color: v.id === "V1" || v.id === "V2" ? "#64748b" : "#b91c1c",
+       fontWeight: 800,
+       cursor: v.id === "V1" || v.id === "V2" ? "not-allowed" : "pointer",
+     }}
+   >
+     ✖ Xóa
+   </button>
+ </div>
+    {/* --- ControlPanel (giữ nguyên) --- */}
+    <ControlPanel
+      vehicle={v}
+      onChange={(field, value) => updateVehicle(v.id, field, value)}
+      onStart={() => handleStartSingle(v.id, 0)}
+    />
+
+    {/* --- Divider --- */}
+    <div style={{ height: 10 }} />
+
+    {/* --- Cargo --- */}
+    <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: 6 }}>
+      Nhập số hàng {v.id}...
+    </div>
+
+    <input
+      value={cargoAmounts[v.id] ?? ""}
+      onChange={(e) => setCargoAmounts((prev) => ({ ...prev, [v.id]: e.target.value }))}
+      placeholder={`Nhập số hàng ${v.id}...`}
+      style={{
+        width: "100%",
+        padding: 10,
+        borderRadius: 8,
+        border: "1px solid #cbd5e1",
+        outline: "none",
+        fontSize: 14,
+        boxSizing: "border-box",
+      }}
+      disabled={v.status === "moving"}
+    />
+
+    <div style={{ marginTop: 8, color: "#334155", fontSize: 12, lineHeight: 1.35 }}>
+      • Điểm về ưu tiên: 1.1 <br />
+      • Xe sau xuất phát theo delay (V2 sau V1, V3 sau V2...)
+    </div>
+  </div>
+))}
+
+</div>
+
+            {/* Start Together */}
+            <button
+              onClick={handleStartTogetherSafeMulti}
+              disabled={isRunningTogether}
+              style={{
+                marginTop: 14,
+                width: "100%",
+                padding: "14px 16px",
+                borderRadius: 14,
+                border: "1px solid rgba(96,165,250,0.55)",
+                background: isRunningTogether
+                  ? "linear-gradient(135deg, rgba(148,163,184,0.35), rgba(148,163,184,0.25))"
+                  : "linear-gradient(135deg, rgba(37,99,235,0.85), rgba(14,165,233,0.65))",
+                color: "#e2e8f0",
+                fontWeight: 900,
+                letterSpacing: "0.4px",
+                cursor: isRunningTogether ? "not-allowed" : "pointer",
+                boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+              }}
+            >
+              {isRunningTogether ? "ĐANG CHẠY..." : "CHẠY CÙNG LÚC (V1→V5, delay tuần tự)"}
+            </button>
 
             {alertMessage && (
-              <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
+              <div style={{ marginTop: 15, width: "100%" }}>
                 <CollisionAlert message={alertMessage} />
               </div>
             )}
 
-{/* === Action Buttons (đồng bộ theme) === */}
-<div style={{ marginTop: 20, display: "flex", gap: 12, flexDirection: "column" }}>
-  <button
-    onClick={handleManualTest}
-    style={{
-      width: "100%",
-      padding: "14px 16px",
-      borderRadius: 14,
-      border: "1px solid rgba(34,197,94,0.35)",
-      background: "linear-gradient(135deg, rgba(34,197,94,0.25), rgba(96,165,250,0.15))",
-      color: "#e2e8f0",
-      fontWeight: 800,
-      letterSpacing: "0.4px",
-      cursor: "pointer",
-      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
-    }}
-  >
-    ✅ Test nhập kho (+10 vào 5.1)
-  </button>
+            {/* Action Buttons */}
+            <div style={{ marginTop: 20, display: "flex", gap: 12, flexDirection: "column" }}>
+              <button
+                onClick={handleManualTest}
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(34,197,94,0.35)",
+                  background: "linear-gradient(135deg, rgba(34,197,94,0.25), rgba(96,165,250,0.15))",
+                  color: "#e2e8f0",
+                  fontWeight: 800,
+                  letterSpacing: "0.4px",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                }}
+              >
+                ✅ Test nhập kho (+10 vào 5.1)
+              </button>
 
-  <button
-    onClick={() => navigate("/warehouse")}
-    style={{
-      width: "100%",
-      padding: "14px 16px",
-      borderRadius: 14,
-      border: "1px solid rgba(96,165,250,0.45)",
-      background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
-      color: "#e2e8f0",
-      fontWeight: 800,
-      letterSpacing: "0.4px",
-      cursor: "pointer",
-      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
-    }}
-  >
-    📦 Qua trang Quản lý kho
-  </button>
+              <button
+                onClick={() => navigate("/warehouse")}
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(96,165,250,0.45)",
+                  background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                  color: "#e2e8f0",
+                  fontWeight: 800,
+                  letterSpacing: "0.4px",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                }}
+              >
+                📦 Qua trang Quản lý kho
+              </button>
 
-  <button
-    onClick={handleResetApp}
-    style={{
-      width: "100%",
-      padding: "14px 16px",
-      borderRadius: 14,
-      border: "1px solid rgba(239,68,68,0.45)",
-      background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(239,68,68,0.12))",
-      color: "#fee2e2",
-      fontWeight: 800,
-      letterSpacing: "0.4px",
-      cursor: "pointer",
-      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
-    }}
-  >
-    🧹 Reset App
-  </button>
+              <button
+                onClick={handleResetApp}
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(239,68,68,0.45)",
+                  background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(239,68,68,0.12))",
+                  color: "#fee2e2",
+                  fontWeight: 800,
+                  letterSpacing: "0.4px",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                }}
+              >
+                🧹 Reset App
+              </button>
             </div>
           </div>
 
           {/* B. Log */}
           <div style={{ flex: 1, minWidth: 520 }}>
-            <DeliveryLog logs={logs} />
+            <DeliveryLog logs={logs} v1Deliveries={v1?.deliveries || 0} v2Deliveries={v2?.deliveries || 0} />
           </div>
         </div>
       </div>

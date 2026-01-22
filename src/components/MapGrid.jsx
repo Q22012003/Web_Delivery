@@ -1,7 +1,13 @@
 // src/components/MapGrid.jsx
 import Vehicle from "./Vehicle";
 
-export default function MapGrid({ v1, v2 }) {
+export default function MapGrid({ vehicles = [], v1, v2 }) {
+  // backward compatible: nếu chỗ nào đó vẫn truyền v1/v2 cũ
+  const list =
+    vehicles && vehicles.length > 0
+      ? vehicles
+      : [v1, v2].filter(Boolean);
+
   const labels = [
     { text: "1.1", row: 1, line: 2 },
     { text: "1.2", row: 1, line: 3 },
@@ -48,10 +54,10 @@ export default function MapGrid({ v1, v2 }) {
         boxShadow: "0 20px 50px rgba(0,0,0,0.7)",
       }}
     >
-      {/* Vẽ lưới ĐẦY ĐỦ (theo logic ban đầu của bạn) */}
+      {/* grid */}
       {Array.from({ length: 5 }, (_, i) =>
         i === 0
-          ? null // XOÁ HÀNG 5 (chỉ vẽ từ hàng dưới lên)
+          ? null
           : Array.from({ length: 4 }, (_, j) => (
               <div
                 key={`${i}-${j}`}
@@ -70,14 +76,14 @@ export default function MapGrid({ v1, v2 }) {
             ))
       )}
 
-      {/* Nhãn đúng trên LINE thứ 2-5 */}
+      {/* labels */}
       {labels.map((label, idx) => (
         <div
           key={idx}
           style={{
             position: "absolute",
-            left: `${(label.line - 1) * 20 - 18}%`, // sát mép trái
-            top: `${(5 - label.row) * 20 + 18}%`, // sát mép dưới
+            left: `${(label.line - 1) * 20 - 18}%`,
+            top: `${(5 - label.row) * 20 + 18}%`,
             transform: "translate(-50%, -50%)",
             fontSize: "0.9vw",
             fontWeight: "bold",
@@ -91,21 +97,17 @@ export default function MapGrid({ v1, v2 }) {
         </div>
       ))}
 
-      <Vehicle
-        id={v1.id}
-        pos={v1.pos}
-        prevPos={v1.prevPos}
-        status={v1.status}
-        index={0}
-      />
-
-      <Vehicle
-        id={v2.id}
-        pos={v2.pos}
-        prevPos={v2.prevPos}
-        status={v2.status}
-        index={1}
-      />
+      {/* vehicles: V1..V5 */}
+      {list.map((v, idx) => (
+        <Vehicle
+          key={v.id}
+          id={v.id}
+          pos={v.pos}
+          prevPos={v.prevPos}
+          status={v.status}
+          index={idx} // để Vehicle offset nếu trùng ô
+        />
+      ))}
     </div>
   );
 }
