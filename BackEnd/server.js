@@ -25,6 +25,7 @@ connectToAwsIot();
 app.post("/api/car/navigate", (req, res) => {
   let { vehicle_id, path, startPoint } = req.body;
 
+  const allowed = new Set(["V1","V2","V3","V4","V5"]);
   if (!vehicle_id || (vehicle_id !== "V1" && vehicle_id !== "V2")) {
     return res.status(400).json({ error: "vehicle_id phải là 'V1' hoặc 'V2'" });
   }

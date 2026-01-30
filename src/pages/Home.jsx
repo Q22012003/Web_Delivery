@@ -442,7 +442,8 @@ export default function Home() {
     <div
       style={{
         padding: "30px 40px",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+         background:
+          "radial-gradient(circle at top, rgba(59,130,246,0.25), rgba(2,6,23,1) 60%)",
         minHeight: "100vh",
         fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
@@ -450,22 +451,58 @@ export default function Home() {
         boxSizing: "border-box",
       }}
     >
-      <ClockDisplay />
+ {/* HEADER – title bên trái, thời gian ở giữa (nhỏ vừa khung) */}
+<div
+  style={{
+    position: "relative",
+    marginBottom: 22,
+    padding: "12px 18px",
+    borderRadius: 16,
+    border: "1px solid rgba(148,163,184,0.12)",
+    background: "linear-gradient(180deg, rgba(15,23,42,0.65), rgba(2,6,23,0.55))",
+    backdropFilter: "blur(8px)",
+    height: 74, // ✅ thấp hơn để giống “khung xanh” ban đầu
+  }}
+>
+  {/* LEFT: REALTIME + sub */}
+  <div
+    style={{
+      position: "absolute",
+      left: 18,
+      top: "50%",
+      transform: "translateY(-50%)",
+      textAlign: "left",
+      lineHeight: 1.1,
+    }}
+  >
+    <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.8 }}>
+      HOME
+    </div>
+    <div style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, opacity: 0.75 }}>
+      Điều khiển thực tế qua Backend
+    </div>
+  </div>
 
-      <h1
-        style={{
-          textAlign: "center",
-          margin: "20px 0 40px",
-          fontSize: "3rem",
-          fontWeight: 800,
-          background: "linear-gradient(45deg, #60a5fa, #a78bfa)",
-          WebkitBackgroundClip: "text",
-          WebkitTextFillColor: "transparent",
-          textShadow: "0 0 30px rgba(96,165,250,0.35)",
-        }}
-      >
-        AUTOMATION CAR DELIVERY
-      </h1>
+  {/* CENTER: time + system (nhỏ vừa khung) */}
+  <div
+    style={{
+      position: "absolute",
+      left: "50%",
+      top: "50%",
+      transform: "translate(-50%, -50%)",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 2,
+      pointerEvents: "none",
+      whiteSpace: "nowrap",
+    }}
+  >
+    <div style={{ fontSize: 22, fontWeight: 900, color: "#67e8f9", lineHeight: 1 }}>
+      <ClockDisplay />
+    </div>
+  </div>
+</div>
 
       <div
         style={{
@@ -599,10 +636,10 @@ export default function Home() {
                 width: "100%",
                 padding: "14px 16px",
                 borderRadius: 14,
-                border: "1px solid rgba(96,165,250,0.55)",
+                border: "1px solid rgba(96,165,250,0.45)",
                 background: isRunningTogether
-                  ? "linear-gradient(135deg, rgba(148,163,184,0.35), rgba(148,163,184,0.25))"
-                  : "linear-gradient(135deg, rgba(37,99,235,0.85), rgba(14,165,233,0.65))",
+                  ? "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))"
+                  : "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
                 color: "#e2e8f0",
                 fontWeight: 900,
                 letterSpacing: "0.4px",
@@ -610,7 +647,7 @@ export default function Home() {
                 boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
               }}
             >
-              {isRunningTogether ? "ĐANG CHẠY..." : "CHẠY CÙNG LÚC (V1→V5, delay tuần tự)"}
+              {isRunningTogether ? "Đang chạy ..." : "Chạy cùng lúc (V1→V5, delay tuần tự)"}
             </button>
 
             {alertMessage && (
@@ -621,23 +658,7 @@ export default function Home() {
 
             {/* Action Buttons */}
             <div style={{ marginTop: 20, display: "flex", gap: 12, flexDirection: "column" }}>
-              <button
-                onClick={handleManualTest}
-                style={{
-                  width: "100%",
-                  padding: "14px 16px",
-                  borderRadius: 14,
-                  border: "1px solid rgba(34,197,94,0.35)",
-                  background: "linear-gradient(135deg, rgba(34,197,94,0.25), rgba(96,165,250,0.15))",
-                  color: "#e2e8f0",
-                  fontWeight: 800,
-                  letterSpacing: "0.4px",
-                  cursor: "pointer",
-                  boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
-                }}
-              >
-                ✅ Test nhập kho (+10 vào 5.1)
-              </button>
+            
 
               <button
                 onClick={() => navigate("/warehouse")}
@@ -663,9 +684,9 @@ export default function Home() {
                   width: "100%",
                   padding: "14px 16px",
                   borderRadius: 14,
-                  border: "1px solid rgba(239,68,68,0.45)",
-                  background: "linear-gradient(135deg, rgba(239,68,68,0.25), rgba(239,68,68,0.12))",
-                  color: "#fee2e2",
+                  border: "1px solid rgba(96,165,250,0.45)",
+                  background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                  color: "#e2e8f0",
                   fontWeight: 800,
                   letterSpacing: "0.4px",
                   cursor: "pointer",

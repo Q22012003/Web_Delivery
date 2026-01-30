@@ -76,39 +76,30 @@ export default function DeliveryLog({ logs, v1Deliveries, v2Deliveries }) {
           </div>
         ) : (
           <>
-            {logs.map((log, i) => (
-              <div
-                key={i}
-                style={{
-                  marginBottom: 14,
-                  paddingBottom: 12,
-                  borderBottom: "1px dashed #cbd5e1",
-                  lineHeight: "1.6",
-                  wordBreak: "break-word",
-                }}
-              >
-                {log.includes("]") ? (
-                  <>
-                    <span
-                      style={{
-                        color: "#64748b",
-                        fontSize: "0.85rem",
-                        display: "block",
-                        marginBottom: "4px",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {log.split("]")[0]}]
-                    </span>
-                    <span style={{ color: "#0369a1", fontWeight: "500" }}>
-                      {log.split("]")[1]}
-                    </span>
-                  </>
-                ) : (
-                  <span style={{ color: "#334155" }}>{log}</span>
-                )}
-              </div>
-            ))}
+            // trong logs.map
+{logs.map((log, i) => {
+  const text =
+    typeof log === "string"
+      ? log
+      : `[${log.time || ""}] ${log.vehicleId || ""}: ${log.ok ? "✅" : "❌"} cargo=${log.cargo ?? ""}`;
+
+  return (
+    <div key={i} style={{ marginBottom: 14, paddingBottom: 12, borderBottom: "1px dashed #cbd5e1", lineHeight: "1.6", wordBreak: "break-word" }}>
+      {text.includes("]") ? (
+        <>
+          <span style={{ color: "#64748b", fontSize: "0.85rem", display: "block", marginBottom: "4px", fontWeight: "bold" }}>
+            {text.split("]")[0]}]
+          </span>
+          <span style={{ color: "#0369a1", fontWeight: "500" }}>
+            {text.split("]")[1]}
+          </span>
+        </>
+      ) : (
+        <span style={{ color: "#334155" }}>{text}</span>
+      )}
+    </div>
+  );
+})}
             <div ref={logsEndRef} />
           </>
         )}

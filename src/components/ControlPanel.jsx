@@ -1,5 +1,14 @@
 export default function ControlPanel({ vehicle, onChange, onStart }) {
-  const { id, startPos, endPos, status } = vehicle;
+  const { id, endPos, status } = vehicle;
+
+  // ✅ FIX LỖI: tương thích cả Home (startPos) và RealTime (pos)
+  const startPos = Array.isArray(vehicle.startPos)
+    ? vehicle.startPos
+    : Array.isArray(vehicle.pos)
+    ? vehicle.pos
+    : [1, 1];
+
+  const safeEndPos = Array.isArray(endPos) ? endPos : [5, 1];
 
   const startPoints = [
     [1, 1],
@@ -8,6 +17,7 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
     [1, 4],
     [1, 5],
   ];
+
   const endPoints = [
     [5, 1],
     [5, 2],
@@ -31,15 +41,20 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
         XE {id} – GIAO HÀNG
       </h3>
 
+      {/* ===== START POSITION ===== */}
       <div style={{ marginBottom: 12 }}>
         <label>
           <strong>Xuất phát:</strong>
         </label>
         <select
           value={startPos.join(",")}
-          onChange={(e) =>
-            onChange("startPos", e.target.value.split(",").map(Number))
-          }
+          onChange={(e) => {
+            const newPos = e.target.value.split(",").map(Number);
+
+            // ✅ update đồng bộ cho Home + RealTime
+            onChange("startPos", newPos);
+            onChange("pos", newPos);
+          }}
           disabled={status === "moving"}
           style={{ width: "100%", padding: 8, marginTop: 4 }}
         >
@@ -51,12 +66,13 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
         </select>
       </div>
 
+      {/* ===== END POSITION ===== */}
       <div style={{ marginBottom: 16 }}>
         <label>
           <strong>Kết thúc giao hàng:</strong>
         </label>
         <select
-          value={endPos.join(",")}
+          value={safeEndPos.join(",")}
           onChange={(e) =>
             onChange("endPos", e.target.value.split(",").map(Number))
           }
@@ -71,6 +87,7 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
         </select>
       </div>
 
+      {/* ===== START BUTTON ===== */}
       <button
         onClick={onStart}
         disabled={status === "moving"}

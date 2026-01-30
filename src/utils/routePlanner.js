@@ -165,3 +165,86 @@ export function planMultiCarsRoute({
 
 // ===== GIỮ LẠI API CŨ CHO 2 XE (không phá code cũ nếu bạn còn chỗ khác dùng) =====
 
+
+
+// ================== PATH -> MCU COMMANDS ==================
+// Quy ước heading (hướng) theo lưới:
+// - 'S' : từ (r,c) -> (r+1,c)  (từ hàng 1 xuống hàng 5)  // theo mô tả của bạn: 1.1 đi "forward" lên 2.1
+// - 'N' : (r-1,c)
+// - 'E' : (r,c+1)
+// - 'W' : (r,c-1)
+//
+// Lệnh MCU: FORWARD / LEFT / RIGHT / BACK / STOP
+// BACK = quay 180° tại chỗ (KHÔNG chạy lùi). Sau đó có thể FORWARD tiếp để đi về ô phía sau theo hành lang.
+//
+// Mặc định: khi bắt đầu ở các điểm 1.x, xe đang hướng 'S' (hướng vào trong map).
+const DEFAULT_HOME_HEADING = "S";
+
+function dirBetween(a, b) {
+  const [r1, c1] = a;
+  const [r2, c2] = b;
+  if (r2 === r1 + 1 && c2 === c1) return "S";
+  if (r2 === r1 - 1 && c2 === c1) return "N";
+  if (r2 === r1 && c2 === c1 + 1) return "E";
+  if (r2 === r1 && c2 === c1 - 1) return "W";
+  return null;
+}
+
+function turnNeeded(fromHeading, toHeading) {
+  const order = ["N", "E", "S", "W"];
+  const i = order.indexOf(fromHeading);
+  const j = order.indexOf(toHeading);
+  if (i === -1 || j === -1) return null;
+  const diff = (j - i + 4) % 4;
+  if (diff === 0) return [];
+  if (diff === 1) return ["RIGHT"];
+  if (diff === 3) return ["LEFT"];
+  if (diff === 2) return ["BACK"]; // u-turn 180
+  return null;
+}
+
+/**
+ * Convert fullPath (list of [r,c]) -> MCU commands.
+ * - startHeading: default 'S'
+ * - normalizeAtEnd: nếu true, khi tới điểm cuối (1.x hoặc bãi đỗ), sẽ quay xe về hướng mặc định (S) để lần sau đi đúng.
+ */
+export function pathToMcuCommands(fullPath, opts = {}) {
+  const startHeading = opts.startHeading || DEFAULT_HOME_HEADING;
+  const normalizeAtEnd = opts.normalizeAtEnd ?? true;
+
+  if (!Array.isArray(fullPath) || fullPath.length < 2) {
+    return { commands: [], finalHeading: startHeading };
+  }
+
+  let heading = startHeading;
+  const cmds = [];
+
+  for (let i = 0; i < fullPath.length - 1; i++) {
+    const a = fullPath[i];
+    const b = fullPath[i + 1];
+    const need = dirBetween(a, b);
+    if (!need) continue;
+
+    const turns = turnNeeded(heading, need);
+    if (turns && turns.length) cmds.push(...turns);
+    heading = need;
+
+    // Sau khi đã quay đúng hướng, đi tới node kế tiếp
+    cmds.push("FORWARD");
+  }
+
+  // Normalize heading khi về bến (row 1) để lần sau "FORWARD" sẽ đi vào trong map
+  if (normalizeAtEnd) {
+    const end = fullPath[fullPath.length - 1];
+    const isRow1Parking = end[0] === 1 && end[1] >= 1 && end[1] <= 5;
+    if (isRow1Parking && heading !== DEFAULT_HOME_HEADING) {
+      const turns = turnNeeded(heading, DEFAULT_HOME_HEADING);
+      if (turns && turns.length) cmds.push(...turns);
+      heading = DEFAULT_HOME_HEADING;
+    }
+    // luôn stop cuối
+    cmds.push("STOP");
+  }
+
+  return { commands: cmds, finalHeading: heading };
+}

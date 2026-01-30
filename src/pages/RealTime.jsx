@@ -1,83 +1,153 @@
 // src/pages/RealTime.jsx
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import io from "socket.io-client";
+
 import MapGrid from "../components/MapGrid";
 import ClockDisplay from "../components/ClockDisplay";
+import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
-import UnifiedControlPanel from "../components/UnifiedControlPanel";
-import DeliveryLog from "../components/DeliveryLog"; 
-import io from "socket.io-client";
-import { planTwoCarsRoute } from "../utils/routePlanner";
+import ControlPanel from "../components/ControlPanel";
 
+import { planMultiCarsRoute, pathToMcuCommands } from "../utils/routePlanner";
 
 const SOCKET_SERVER_URL =
   import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+  const SIDEBAR_W = 280; // đúng bằng width sidebar của bạn
+  const PAGE_GAP = 20;
+  
+const HOME = [1, 1];
+const START_SPOTS = [
+  [1, 1], // V1
+  [1, 2], // V2
+  [1, 3], // V3
+  [1, 4], // V4
+  [1, 5], // V5
+];
+
+const makeVehicle = (id, pos, endPos) => ({
+  id,
+  pos,
+  endPos,
+  status: "idle",
+  tripLog: [],
+  delayMs: 0,
+});
+
+const buildDefaultVehicles = () => ([
+  makeVehicle("V1", START_SPOTS[0], [5, 3]),
+  makeVehicle("V2", START_SPOTS[1], [5, 5]),
+]);
+
+const buildDefaultCargo = () => ({ V1: "", V2: "" });
 
 export default function RealTime() {
-  const [vehicles, setVehicles] = useState({
-    V1: { id: "V1", pos: [1, 1], endPos: [5, 3], status: "idle" },
-    V2: { id: "V2", pos: [1, 1], endPos: [5, 5], status: "idle" },
-  });
-  
+  const navigate = useNavigate();
+  const socketRef = useRef(null);
 
-  const [cargoAmounts, setCargoAmounts] = useState({ V1: "", V2: "" });
+  const [vehicles, setVehicles] = useState(buildDefaultVehicles());
+  const [cargoAmounts, setCargoAmounts] = useState(buildDefaultCargo());
   const [alertMessage, setAlertMessage] = useState("");
   const [blink, setBlink] = useState(false);
-  const socketRef = useRef(null);
   const [logs, setLogs] = useState([]);
   const [deliveryCounters, setDeliveryCounters] = useState({ V1: 0, V2: 0 });
+  const [isRunningTogether, setIsRunningTogether] = useState(false);
 
-  const getNextDeliveryId = () => {
-    const counter = parseInt(localStorage.getItem("realDeliveryCounter") || "0") + 1;
-    localStorage.setItem("realDeliveryCounter", counter);
-    return `DH${String(counter).padStart(4, "0")}`;
-  };
-  
-  const updateVehicle = (id, field, value) => {
-    // Realtime chỉ cho đổi endPos, KHÔNG cho đổi startPos
-    if (field === "startPos") return;
-  
-    setVehicles((prev) => ({
-      ...prev,
-      [id]: {
-        ...prev[id],
-        [field]: value,
-      },
-    }));
-  };
+  const v1 = vehicles.find((v) => v.id === "V1");
+  const v2 = vehicles.find((v) => v.id === "V2");
 
-  const addLog = (vehicleId, cargo, success = true) => {
-    const now = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false });
-    const deliveryId = getNextDeliveryId();
-    const statusText = success ? "Đã gửi lộ trình" : "Lỗi gửi lệnh";
-    const cargoText = cargo ? `${cargo} hàng` : "Không có hàng";
-    setLogs((prev) => [...prev, `[${now}] ${vehicleId} | ${deliveryId} | ${cargoText} | ${statusText}`]);
-    if (success && vehicleId) {
-      setDeliveryCounters((prev) => ({ ...prev, [vehicleId]: prev[vehicleId] + 1 }));
-    }
-  };
-
-  useEffect(() => {
-    socketRef.current = io(SOCKET_SERVER_URL);
-    socketRef.current.on("connect", () => console.log("RealTime connected"));
-    socketRef.current.on("car:position", (data) => {
-      const targetVehicle = data.vehicle_id
-      ? data.vehicle_id
-      : (data.device_id?.includes("01") ? "V1" : "V2");
-      if (!targetVehicle || !Array.isArray(data.position)) return;
-      setVehicles((prev) => ({
-        ...prev,
-        [targetVehicle]: { ...prev[targetVehicle], pos: data.position, status: "moving" },
-      }));
-      setTimeout(() => {
-        setVehicles((prev) => ({
-          ...prev,
-          [targetVehicle]: { ...prev[targetVehicle], status: "idle" },
-        }));
-      }, 3000);
+  const addPathLog = (vehicleId, path) => {
+    if (!Array.isArray(path) || path.length === 0) return;
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
     });
-    return () => socketRef.current?.disconnect();
-  }, []);
+    const pathStr = path.map((p) => `${p[0]}.${p[1]}`).join(" → ");
+    setLogs((prev) => [`[${now}] Xe ${vehicleId}: ${pathStr}`, ...prev].slice(0, 200));
+  };
+
+  const addLog = (vehicleId, cargo, ok) => {
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    const message = `[${now}] ${vehicleId}: ${ok ? "✅" : "❌"} cargo=${cargo || "Chưa nhập"}`;
+    setLogs((prev) => [message, ...prev].slice(0, 200));
+  };
+
+  const updateVehicle = (id, field, value) => {
+    setVehicles((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, [field]: value } : v))
+    );
+  };
+
+  const getNextDeliveryId = (vehicleId) => {
+    const current = deliveryCounters[vehicleId] || 0;
+    const next = current + 1;
+    setDeliveryCounters((prev) => ({ ...prev, [vehicleId]: next }));
+    return next;
+  };
+useEffect(() => {
+  socketRef.current = io(SOCKET_SERVER_URL);
+
+  socketRef.current.on("car:position", (payload) => {
+    // backend có thể gửi: { vehicle_id | vehicleId | id, position: [row,col], status }
+    const vid = payload?.vehicle_id || payload?.vehicleId || payload?.id;
+    const pos = payload?.position;
+    if (!vid || !Array.isArray(pos) || pos.length !== 2) return;
+
+    // DONE/IDLE là kết thúc (OK có thể chỉ ACK từng node)
+    const rawStatus = String(payload?.status || "").toUpperCase();
+    const isTerminal = rawStatus === "DONE" || rawStatus === "IDLE";
+
+    setVehicles((prev) =>
+      prev.map((v) =>
+        v.id === vid
+          ? {
+              ...v,
+              pos: [pos[0], pos[1]],
+              ...(isTerminal ? { status: "idle", tripLog: [] } : null),
+            }
+          : v
+      )
+    );
+  });
+
+  // ✅ FIX: hỗ trợ nhiều kiểu key khi backend emit xong job
+  socketRef.current.on("car:reached", (payload) => {
+    const vehicleId = payload?.vehicleId || payload?.vehicle_id || payload?.id;
+    if (!vehicleId) return;
+
+    setVehicles((prev) =>
+      prev.map((v) =>
+        v.id === vehicleId ? { ...v, status: "idle", tripLog: [] } : v
+      )
+    );
+  });
+
+  socketRef.current.on("car:error", (payload) => {
+    const vehicleId = payload?.vehicleId || payload?.vehicle_id || payload?.id;
+    const message = payload?.message;
+    if (!vehicleId) return;
+
+    setAlertMessage(`${vehicleId}: ${message || "Lỗi không rõ"}`);
+    setTimeout(() => setAlertMessage(""), 4000);
+
+    setVehicles((prev) =>
+      prev.map((v) =>
+        v.id === vehicleId ? { ...v, status: "idle", tripLog: [] } : v
+      )
+    );
+  });
+
+  return () => socketRef.current?.disconnect();
+}, []);
+
 
   useEffect(() => {
     const interval = setInterval(() => setBlink((prev) => !prev), 1500);
@@ -87,199 +157,440 @@ export default function RealTime() {
   const sendPathToBackend = async (vehicleId, fullPath, cargo) => {
     if (!fullPath || fullPath.length < 2) {
       setAlertMessage("Lộ trình không hợp lệ!");
+      setTimeout(() => setAlertMessage(""), 4000);
       return;
     }
   
     const toCsv = (p) => `${p[0]},${p[1]}`;
-  
     const formattedPath = fullPath.map(toCsv);
     const formattedStartPoint = toCsv(fullPath[0]);
   
+    const { commands } = pathToMcuCommands(fullPath, { normalizeAtEnd: true });
+  
     try {
-      await fetch("http://localhost:5000/api/car/navigate", {
+      const res = await fetch("http://localhost:5000/api/car/navigate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vehicle_id: vehicleId,
           path: formattedPath,
-          cargo: cargo,
+          cargo,
           startPoint: formattedStartPoint,
+          commands,
         }),
       });
   
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+  
+      const data = await res.json();
+  
+      // log debug 1 dòng rõ ràng
+      const now = new Date().toLocaleString("vi-VN", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+      setLogs((prev) => [`[${now}] ✅ ${vehicleId} backend OK: ${data?.message || "sent"}`, ...prev].slice(0, 200));
+  
+      // log giao hàng như bạn đang dùng
       addLog(vehicleId, cargo, true);
       setAlertMessage(`${vehicleId} đã gửi lộ trình thực tế`);
     } catch (err) {
       console.error("Lỗi gửi lệnh:", err);
       addLog(vehicleId, cargo, false);
-      setAlertMessage("❌ Lỗi kết nối Backend!");
+      setAlertMessage(`❌ Backend lỗi: ${err?.message || "unknown"}`);
     } finally {
       setTimeout(() => setAlertMessage(""), 4000);
     }
   };
-
-  const handleStart = (id, startInput, endInput) => {
-    console.log(`[DEBUG UI] Bấm nút Start xe ${id}`);
-    
-    const parsePos = (str) => {
-        if (!str) return null;
-        if (Array.isArray(str)) return str; 
-        if (typeof str === 'string' && str.trim().startsWith('[')) {
-            try { return JSON.parse(str); } catch (e) { return null; }
-        }
-        if (typeof str === 'string' && str.includes(',')) {
-            return str.split(',').map(n => parseInt(n.trim()));
-        }
-        return null;
-    };
-
-    let sPos = parsePos(startInput);
-    const ePos = parsePos(endInput) || [5, 3];
-    
-    if (!sPos) {
-        sPos = vehicles[id].pos;
-        console.warn(`[WARN] Không đọc được startInput, dùng vị trí xe hiện tại: ${sPos}`);
-    } else {
-        console.log(`[OK] Đã nhận tọa độ xuất phát từ Input: ${sPos}`);
-    }
-
-    const cargo = cargoAmounts[id] || "0";
-
-    if (vehicles[id].status === "moving") {
-      setAlertMessage(`${id} đang di chuyển!`);
-      return;
-    }
-    
-    sendPathToBackend(id, cargo, sPos, ePos);
-  };
-
-  const handleStartTogether = () => {
-    const v1Cargo = cargoAmounts.V1 || "0";
-    const v2Cargo = cargoAmounts.V2 || "0";
   
-    if (vehicles.V1.status === "moving" || vehicles.V2.status === "moving") {
-      setAlertMessage("Có xe đang chạy!");
-      return;
-    }
-  
-    const result = planTwoCarsRoute({
-      v1Start: vehicles.V1.pos,
-      v2Start: vehicles.V2.pos,
-      v1End: vehicles.V1.endPos,
-      v2End: vehicles.V2.endPos,
-      v2DelayMs: 3500,
-      v2DelayTicks: 4,
+
+  const handleAddVehicle = () => {
+    setVehicles((prev) => {
+      if (prev.length >= 5) return prev;
+
+      const nextIndex = prev.length; // 0..4
+      const id = `V${nextIndex + 1}`;
+      const newV = makeVehicle(id, START_SPOTS[nextIndex], [5, 1]);
+
+      return [...prev, newV];
     });
-  
-    if (!result) {
-      setAlertMessage("❌ Không tìm được lộ trình an toàn!");
+
+    setCargoAmounts((prev) => {
+      const count = Object.keys(prev).length;
+      if (count >= 5) return prev;
+      const id = `V${count + 1}`;
+      return { ...prev, [id]: "" };
+    });
+  };
+
+  const handleRemoveVehicle = (vehicleId) => {
+    if (vehicleId === "V1" || vehicleId === "V2") {
+      alert("Không thể xóa V1/V2.");
       return;
     }
-  
-    // ===== GỬI V1 NGAY =====
-    sendPathToBackend("V1", result.V1.fullPath, v1Cargo);
-  
-    // ===== GỬI V2 SAU 3–4s =====
-    setTimeout(() => {
-      sendPathToBackend("V2", result.V2.fullPath, v2Cargo);
-    }, result.V2.delayMs);
-  
-    setCargoAmounts({ V1: "", V2: "" });
+    const v = vehicles.find((x) => x.id === vehicleId);
+    if (!v) return;
+    if (v.status === "moving") {
+      alert(`Xe ${vehicleId} đang chạy, không thể xóa.`);
+      return;
+    }
+
+    if (!confirm(`Bạn chắc chắn muốn xóa xe ${vehicleId} không?`)) return;
+
+    setVehicles((prev) => prev.filter((x) => x.id !== vehicleId));
+    setCargoAmounts((prev) => {
+      const next = { ...prev };
+      delete next[vehicleId];
+      return next;
+    });
   };
-  
 
+const handleStartTogetherSafeMulti = () => {
+  const active = vehicles                // chỉ xe bật
+    .filter((v) => v.endPos)                  // phải có điểm đến
+    .filter((v) => v.id === "V1" || v.id === "V2") // ✅ cứng 2 xe
+    .map((v) => ({
+      id: v.id,
+      startPos: v.pos,
+      endPos: v.endPos,
+      delayMs: 0,
+    }));
+
+  if (active.length === 0) {
+    setAlertMessage("⚠️ Chưa chọn xe / chưa có điểm đến!");
+    setTimeout(() => setAlertMessage(""), 4000);
+    return;
+  }
+
+  const result = planMultiCarsRoute({
+    vehicles: active,
+    baseDelayTicks: 4,
+    baseDelayMs: 3500,
+    maxCars: 2,
+  });
+
+  if (!result) {
+    setAlertMessage("❌ Không tìm được lộ trình an toàn cho tất cả xe!");
+    setTimeout(() => setAlertMessage(""), 5000);
+    return;
+  }
+
+    setIsRunningTogether(true);
+
+    // gửi lần lượt (delay theo thứ tự xe)
+    active.forEach((v, idx) => {
+      const res = result[v.id];
+      const fullPath = res?.fullPath;
+      const delayMs = idx * 3000; // giữ logic "xe sau đợi xe trước"
+      setTimeout(() => {
+        setVehicles((prev) =>
+          prev.map((x) =>
+            x.id === v.id ? { ...x, status: "moving", tripLog: fullPath || [] } : x
+          )
+        );
+
+        const cargo = cargoAmounts[v.id] ?? "";
+        sendPathToBackend(v.id, fullPath, cargo);
+      }, delayMs);
+    });
+  };
+
+  // ===== UI =====
   return (
-    <div style={{
-        padding: "30px 40px",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+    <div
+      style={{
         minHeight: "100vh",
-        fontFamily: "Segoe UI, sans-serif",
+        background:
+          "radial-gradient(circle at top, rgba(59,130,246,0.25), rgba(2,6,23,1) 60%)",
+        padding: 20,
+        paddingLeft: SIDEBAR_W + PAGE_GAP, // ✅ chừa chỗ cho sidebar fixed
         color: "#e2e8f0",
-        overflowX: "hidden",
-        boxSizing: "border-box" // Đảm bảo padding không làm vỡ layout
-      }}>
-      <ClockDisplay />
-      
-      <h1 style={{
-          textAlign: "center", margin: "20px 0 40px", color: "#60a5fa",
-          fontSize: "3rem", fontWeight: "bold", textShadow: "0 0 30px rgba(96,165,250,0.6)",
-        }}>
-        CHẾ ĐỘ THỰC TẾ
-      </h1>
+        boxSizing: "border-box",
+      }}
+    >
+{/* HEADER – title bên trái, thời gian ở giữa (nhỏ vừa khung) */}
+<div
+  style={{
+    position: "relative",
+    marginBottom: 22,
+    padding: "12px 18px",
+    borderRadius: 16,
+    border: "1px solid rgba(148,163,184,0.12)",
+    background: "linear-gradient(180deg, rgba(15,23,42,0.65), rgba(2,6,23,0.55))",
+    backdropFilter: "blur(8px)",
+    height: 74, // ✅ thấp hơn để giống “khung xanh” ban đầu
+  }}
+>
+  {/* LEFT: REALTIME + sub */}
+  <div
+    style={{
+      position: "absolute",
+      left: 18,
+      top: "50%",
+      transform: "translateY(-50%)",
+      textAlign: "left",
+      lineHeight: 1.1,
+    }}
+  >
+    <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 0.8 }}>
+      REALTIME
+    </div>
+    <div style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, opacity: 0.75 }}>
+      Điều khiển thực tế qua Backend
+    </div>
+  </div>
 
-      <div 
-        style={{ 
-          display: "flex", 
-          gap: 30, 
-          justifyContent: "center", 
-          alignItems: "stretch", 
-          flexWrap: "wrap" 
+  {/* CENTER: time + system (nhỏ vừa khung) */}
+  <div
+    style={{
+      position: "absolute",
+      left: "50%",
+      top: "50%",
+      transform: "translate(-50%, -50%)",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 2,
+      pointerEvents: "none",
+      whiteSpace: "nowrap",
+    }}
+  >
+    <div style={{ fontSize: 22, fontWeight: 900, color: "#67e8f9", lineHeight: 1 }}>
+      <ClockDisplay />
+    </div>
+  </div>
+</div>
+
+      {/* Body: 2 cột giống Home */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          gap: 25,
+          alignItems: "flex-start",
         }}
       >
-        {/* Cột 1: Bản đồ */}
-        <div style={{ flex: "0 0 auto" }}>
-          <MapGrid v1={vehicles.V1} v2={vehicles.V2} />
+        {/* CỘT 1: MAP */}
+        <div
+          style={{
+            flex: "0 0 auto",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
+          <div style={{ marginTop: 18 }}>
+            <PageSwitchButtons />
+          </div>
         </div>
 
-        {/* Cột 2: Container chứa Điều khiển & Nhật ký */}
-        {/* [FIX] Set chiều cao tính toán theo màn hình để 2 bảng luôn bằng nhau */}
-        <div style={{ 
-            display: "flex", 
+        {/* CỘT 2: CONTROLS & LOG */}
+        <div
+          style={{
+            display: "flex",
             flexDirection: "row",
-            gap: 25, 
-            height: "calc(100vh - 180px)", // Chiều cao tự động theo màn hình
-            minHeight: "720px",            // Chiều cao tối thiểu để không bị mất nội dung
-            maxHeight: "900px"             // Giới hạn chiều cao trên màn hình quá lớn
-        }}>
-           
-           {/* Bảng điều khiển */}
-           <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-              <UnifiedControlPanel
-                v1={vehicles.V1}
-                v2={vehicles.V2}
-                cargoAmounts={cargoAmounts}
-                setCargoAmounts={setCargoAmounts}
-                onChange={updateVehicle}
-                onStart={handleStart}
-                onStartTogether={handleStartTogether}
-              />
-              
-              {alertMessage && (
-                 <div style={{ marginTop: 15, width: "100%", maxWidth: "500px" }}>
-                    <CollisionAlert message={alertMessage} />
-                 </div>
-              )}
-           </div>
+            gap: 25,
+            height: "calc(100vh - 180px)",
+            minHeight: "720px",
+            maxHeight: "900px",
+          }}
+        >
+          {/* A. Bảng điều khiển */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              width: "clamp(720px, 52vw, 980px)",
+            }}
+          >
+            <button
+              onClick={handleAddVehicle}
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                borderRadius: 14,
+                border: "1px solid rgba(96,165,250,0.45)",
+                background:
+                  "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                color: "#e2e8f0",
+                fontWeight: 900,
+                letterSpacing: "0.4px",
+                cursor: "pointer",
+                boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                marginBottom: 14,
+              }}
+            >
+              ➕ Thêm xe (tối đa 5)
+            </button>
 
-           {/* Bảng Nhật ký [FIX] - Chiều cao 100% theo cha */}
-           <div style={{
-              height: "100%",        // Luôn cao bằng container cha (bằng Bảng điều khiển)
-              overflowY: "auto",     // Tự động hiện thanh cuộn khi nội dung dài
-              paddingRight: "5px",
-              
-              // CSS thanh cuộn đẹp
-              scrollbarWidth: "thin",
-              scrollbarColor: "#64748b #1e293b",
-              
-              // Giữ style bao quanh nếu cần (hoặc để component tự lo)
-              borderRadius: "20px",
-              display: "flex",       // Flex để DeliveryLog bung ra hết cỡ
-              flexDirection: "column"
-           }}>
-              {/* Truyền style height 100% vào DeliveryLog nếu nó hỗ trợ, hoặc để div này lo */}
-              <div style={{ flex: 1 }}> 
-                  <DeliveryLog 
-                    logs={logs} 
-                    v1Deliveries={deliveryCounters.V1} 
-                    v2Deliveries={deliveryCounters.V2} 
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+                gap: 16,
+                width: "100%",
+                alignItems: "stretch",
+                overflowY: "auto",
+                paddingRight: 8,
+              }}
+            >
+              {vehicles.map((v) => (
+                <div
+                  key={v.id}
+                  style={{ background: "#fff", borderRadius: 14, padding: 14 }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                      {v.id}
+                    </div>
+
+                    <button
+                      onClick={() => handleRemoveVehicle(v.id)}
+                      disabled={v.id === "V1" || v.id === "V2"}
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 10,
+                        border: "1px solid rgba(239,68,68,0.35)",
+                        background:
+                          v.id === "V1" || v.id === "V2"
+                            ? "#e2e8f0"
+                            : "rgba(239,68,68,0.12)",
+                        color:
+                          v.id === "V1" || v.id === "V2"
+                            ? "#64748b"
+                            : "#b91c1c",
+                        fontWeight: 800,
+                        cursor:
+                          v.id === "V1" || v.id === "V2"
+                            ? "not-allowed"
+                            : "pointer",
+                      }}
+                    >
+                      ✖ Xóa
+                    </button>
+                  </div>
+
+                  <ControlPanel
+                    vehicle={v}
+                    onChange={(field, value) => updateVehicle(v.id, field, value)}
+                    onStart={() => {
+                      // chạy 1 xe: plan riêng rồi gửi
+                      const result = planMultiCarsRoute({
+                        vehicles: [{ id: v.id, startPos: v.pos, endPos: v.endPos }],
+                        baseDelayTicks: 4,
+                        baseDelayMs: 3500,
+                        maxCars: 2,
+                      });
+                      const fullPath = result?.[v.id]?.fullPath;
+                      setVehicles((prev) =>
+                        prev.map((x) =>
+                          x.id === v.id
+                            ? { ...x, status: "moving", tripLog: fullPath || [] }
+                            : x
+                        )
+                      );
+                      addPathLog(v.id, fullPath);
+                      const cargo = cargoAmounts[v.id] ?? "";
+                      sendPathToBackend(v.id, fullPath, cargo);
+                    }}
                   />
-              </div>
-           </div>
-        </div>
-      </div>
 
-      <div style={{ marginTop: 40 }}>
-        <PageSwitchButtons />
+                  <div style={{ height: 10 }} />
+
+                  <div
+                    style={{
+                      fontWeight: 800,
+                      color: "#0f172a",
+                      marginBottom: 6,
+                    }}
+                  >
+                    Nhập số hàng {v.id}...
+                  </div>
+
+                  <input
+                    value={cargoAmounts[v.id] ?? ""}
+                    onChange={(e) =>
+                      setCargoAmounts((prev) => ({
+                        ...prev,
+                        [v.id]: e.target.value,
+                      }))
+                    }
+                    placeholder={`Nhập số hàng ${v.id}...`}
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      borderRadius: 8,
+                      border: "1px solid #cbd5e1",
+                      outline: "none",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                    disabled={v.status === "moving"}
+                  />
+
+                  <div
+                    style={{
+                      marginTop: 8,
+                      color: "#334155",
+                      fontSize: 12,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    • Điểm về ưu tiên: 1.1 <br />
+                    • Xe sau xuất phát theo delay (V2 sau V1, V3 sau V2...)
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={handleStartTogetherSafeMulti}
+              disabled={isRunningTogether}
+              style={{
+                marginTop: 14,
+                width: "100%",
+                padding: "14px 16px",
+                borderRadius: 14,
+                border: "1px solid rgba(96,165,250,0.55)",
+                background: isRunningTogether
+                  ? "linear-gradient(135deg, rgba(148,163,184,0.35), rgba(148,163,184,0.25))"
+                  : "linear-gradient(135deg, rgba(37,99,235,0.85), rgba(14,165,233,0.65))",
+                color: "#e2e8f0",
+                fontWeight: 900,
+                letterSpacing: "0.4px",
+                cursor: isRunningTogether ? "not-allowed" : "pointer",
+                boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+              }}
+            >
+              {isRunningTogether ? "ĐANG CHẠY..." : "CHẠY CÙNG LÚC (V1→V5, delay tuần tự)"}
+            </button>
+
+            {alertMessage && (
+              <div style={{ marginTop: 15, width: "100%" }}>
+                <CollisionAlert message={alertMessage} />
+              </div>
+            )}
+          </div>
+
+          {/* B. Log */}
+          <div style={{ width: 430 }}>
+            <DeliveryLog logs={logs} blink={blink} />
+          </div>
+        </div>
       </div>
     </div>
   );

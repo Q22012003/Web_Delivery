@@ -30,11 +30,21 @@ const getDirection = (session, currentStr, targetStr) => {
   const dx = r2 - r1;
   const dy = c2 - c1;
   const currentVector = { dx, dy };
-
-  const crossProduct = (session.lastVector.dx * dy) - (session.lastVector.dy * dx);
+  const prev = session.lastVector;
+  const crossProduct = (prev.dx * dy) - (prev.dy * dx);
+  const dotProduct   = (prev.dx * dx) + (prev.dy * dy);
+  
+  // update vector SAU khi tính
   session.lastVector = currentVector;
-
-  if (crossProduct === 0) return "FORWARD";
+  
+  if (dx === 0 && dy === 0) return "STOP";
+  
+  if (crossProduct === 0) {
+    // cùng hướng => FORWARD, ngược hướng => BACK
+    if (dotProduct < 0) return "BACK";
+    return "FORWARD";
+  }
+  
   // theo logic xe bạn: cross > 0 là RIGHT, cross < 0 là LEFT
   if (crossProduct > 0) return "RIGHT";
   return "LEFT";
@@ -54,7 +64,37 @@ const sendNextPosition = (vehicleId) => {
     console.log(`=== [DONE ${vehicleId}] ĐÃ ĐẾN ĐÍCH CUỐI CÙNG ===`);
     s.isNavigating = false;
     s.currentTarget = null;
-    publishToCar(TOPICS[vehicleId].pubCmd, { type: "STOP", message: "Finished" });
+    const [rr] = (s.lastPosition || "0,0").split(",").map(Number);
+    const needReset = (rr === 1);
+
+     publishToCar(TOPICS[vehicleId].pubCmd, {
+     type: "STOP",
+     message: "Finished",
+     reset_heading: needReset
+    });
+    // ✅ THÔNG BÁO FRONTEND ĐÃ KẾT THÚC JOB
+try {
+  // Emit car:reached để UI set status=idle
+  emitToFrontend("car:reached", {
+    vehicle_id: vehicleId,
+    position: s.lastPosition || null,
+    timestamp: new Date(),
+  });
+
+  // Đồng thời emit lại car:position với status DONE (để tương thích nhiều UI)
+  if (s.lastPosition) {
+    const [row, col] = String(s.lastPosition).split(",").map(Number);
+    emitToFrontend("car:position", {
+      vehicle_id: vehicleId,
+      device_id: vehicleId === "V1" ? "01" : "02",
+      position: [row, col],
+      status: "DONE",
+      timestamp: new Date(),
+    });
+  }
+}   catch (e) {
+    console.error("[DONE emit error]", e?.message || e);
+  }
     return;
   }
 
@@ -116,6 +156,7 @@ const setupConnectionEvents = async () => {
       const [row, col] = rawPos.split(",").map(Number);
 
       // Emit đầy đủ để frontend không crash
+      console.log("[EMIT] car:position", vehicleId, row, col, data.status);
       emitToFrontend("car:position", {
         vehicle_id: vehicleId,
         device_id: data.device_id || (vehicleId === "V1" ? "01" : "02"),
