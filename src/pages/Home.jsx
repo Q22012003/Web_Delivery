@@ -247,47 +247,61 @@ export default function Home() {
   };
 
   // ===== START TOGETHER (N xe) =====
+      // 1) Chỉ chọn xe đã có endPos (được cấu hình điểm đến)
+
   const handleStartTogetherSafeMulti = () => {
-    // validate cargo + status
-    for (const v of vehicles) {
-      const amount = parseInt(cargoAmounts[v.id]);
-      if (!amount || amount <= 0) {
-        alert(`⚠️ Vui lòng nhập số lượng cho ${v.id} > 0`);
-        return;
-      }
-      if (v.status === "moving") {
-        alert("Có xe đang chạy, vui lòng chờ.");
-        return;
-      }
-    }
+        try {
+            // 1) Chỉ chọn xe đã có endPos (được cấu hình điểm đến)
+            const selected = vehicles.filter(
+              (v) => Array.isArray(v.endPos) && v.endPos.length === 2
+            );
+      
+            if (selected.length === 0) {
+              alert("⚠️ Chưa chọn điểm đến cho xe nào (endPos).");
+              return;
+            }
+      
+            // 2) Nếu có bất kỳ xe nào đang chạy thì chặn
+            if (vehicles.some((v) => v.status === "moving")) {
+              alert("Có xe đang chạy, vui lòng chờ.");
+              return;
+            }
+      
+            // 3) Validate cargo CHỈ cho các xe selected
+            for (const v of selected) {
+              const amount = parseInt(cargoAmounts[v.id]);
+              if (!amount || amount <= 0) {
+                alert(`⚠️ Vui lòng nhập số lượng cho ${v.id} > 0`);
+                return;
+              }
+            }
+      
+            const planInput = selected.map((v) => ({
+              id: v.id,
+              startPos: v.pos,
+              endPos: v.endPos,
+            }));
+      
+            // ✅ Chỉ set running sau khi planner chạy OK (tránh kẹt nút nếu planner throw)
+            const result = planMultiCarsRoute({
+              vehicles: planInput,
+              baseDelayTicks: 4,
+              baseDelayMs: 3500,
+              maxCars: 5,
+            });
+      
+            if (!result) {
+              addLog("System", 0, "❌ Không tìm được lộ trình an toàn cho tất cả xe!");
+              return;
+            }
+      
+            setIsRunningTogether(true);
 
-    setIsRunningTogether(true);
-
-    const planInput = vehicles.map((v, idx) => ({
-      id: v.id,
-      startPos: v.pos,
-      endPos: v.endPos,
-      // delayTicks/delayMs sẽ được set tự động theo thứ tự
-    }));
-
-    const result = planMultiCarsRoute({
-      vehicles: planInput,
-      baseDelayTicks: 4,
-      baseDelayMs: 3500, // V2 3–4s, V3 7s, V4 10.5s, V5 14s
-      maxCars: 5,
-    });
-
-    if (!result) {
-      addLog("System", 0, "❌ Không tìm được lộ trình an toàn cho tất cả xe!");
-      setIsRunningTogether(false);
-      return;
-    }
-
-    // start theo delay
-    for (const v of vehicles) {
+                // start theo delay
+      for (const v of selected) {
       const amount = parseInt(cargoAmounts[v.id]);
       const pack = result[v.id];
-      if (!pack) continue;
+      if (!pack || !pack.fullPath || pack.fullPath.length < 2) continue;
 
       const startFn = () => {
         moveVehicleById(v.id, (prev) => ({
@@ -304,12 +318,20 @@ export default function Home() {
 
       if (pack.delayMs > 0) setTimeout(startFn, pack.delayMs);
       else startFn();
-    }
+            }
 
-    // clear cargo
-    const cleared = {};
-    for (const v of vehicles) cleared[v.id] = "";
-    setCargoAmounts((prev) => ({ ...prev, ...cleared }));
+    // clear cargo (chỉ clear xe selected)
+          // clear cargo (chỉ clear xe selected)
+          const cleared = {};
+          for (const v of selected) cleared[v.id] = "";
+          setCargoAmounts((prev) => ({ ...prev, ...cleared }));
+    
+        } catch (err) {
+          console.error("[handleStartTogetherSafeMulti] ERROR:", err);
+          alert(`❌ Lỗi khi planMultiCarsRoute: ${err?.message || err}`);
+          addLog("System", 0, `❌ Lỗi planner: ${err?.message || err}`);
+          setIsRunningTogether(false); // ✅ đảm bảo không bị kẹt nút
+        }
   };
 
   // ===== Tick chạy xe (N xe) =====
@@ -629,6 +651,7 @@ export default function Home() {
 
             {/* Start Together */}
             <button
+              type="button"
               onClick={handleStartTogetherSafeMulti}
               disabled={isRunningTogether}
               style={{

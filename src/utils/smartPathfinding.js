@@ -311,28 +311,37 @@ export function findSafePathWithReturn(
   reservePathAll(baseReserved, pathToGoal, timeOffset, 1);
 
   // --- RETURN PATH ---
-  const backTarget = returnTarget || start;
-  let returnPath = null;
-
-  for (let wait = 0; wait <= 220; wait++) {
-    // shiftReserved giúp “dời” các reserved theo wait để tìm đường return an toàn hơn
-    const shifted = shiftReserved(baseReserved, -wait);
-    const candidate = aStar(
-      goal,
-      backTarget,
-      shifted,
-      arrivalTime + wait + 2,
-      otherPath,
-      otherStartTime
-    );
-
-    if (candidate && candidate.length >= 2) {
-      returnPath = candidate;
-      break;
+    const backTarget = returnTarget || start;
+    let returnPath = null;
+    let chosenWait = 0;
+  
+    // Ý tưởng: thử “đợi” tại GOAL một số tick rồi mới về bến.
+    // IMPORTANT FIX:
+    // 1) KHÔNG shift reserved theo -wait (shift gây sai timeline).
+    // 2) Nếu có wait>0 thì PHẢI chèn các bước "WAIT" (đứng yên tại goal) vào fullPath
+    //    để timeline của fullPath khớp với timeOffset dùng khi tìm returnPath.
+    for (let wait = 0; wait <= 220; wait++) {
+      const candidate = aStar(
+        goal,
+        backTarget,
+        baseReserved,              // giữ nguyên reserved timeline
+        arrivalTime + wait + 1,    // start return after waiting
+        otherPath,
+        otherStartTime
+      );
+  
+      if (candidate && candidate.length >= 2) {
+        returnPath = candidate;
+        chosenWait = wait; // +2 tick buffer giống logic cũ
+        break;
+      }
     }
-  }
-
-  if (!returnPath) return null;
-
-  return [...pathToGoal, ...returnPath.slice(1)];
+  
+    if (!returnPath) return null;
+  
+    // Chèn WAIT tại goal để đúng timeline (goal lặp lại chosenWait lần)
+    const waitSteps =
+      chosenWait > 0 ? Array.from({ length: chosenWait }, () => [...goal]) : [];
+  
+    return [...pathToGoal, ...waitSteps, ...returnPath.slice(1)];
 }

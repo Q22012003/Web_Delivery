@@ -79,12 +79,40 @@ function estimateETA(start, end, delayTicks) {
   return (naive.length - 1) + delayTicks;
 }
 
+function assignReturnTargetsByETA(vehicles) {
+    // Yêu cầu của bạn:
+    // - Xe có ETA về đích (goal) nhỏ nhất sẽ được ưu tiên về bến 1.1
+    // - Các xe còn lại lần lượt về 1.2, 1.3, 1.4, 1.5
+    // Lưu ý: ETA ở đây là ước lượng naive (A* đơn, chưa tính kẹt do reservation),
+    // nhưng đủ để quyết định "winner" nhất quán theo logic bạn mô tả.
+    const ranked = vehicles
+      .map((v) => ({
+        id: v.id,
+        eta: estimateETA(v.startPos, v.endPos, v.delayTicks || 0),
+      }))
+      .sort((a, b) => a.eta - b.eta);
+  
+    const map = {};
+    ranked.forEach((x, idx) => {
+      map[x.id] = PARKING_SPOTS[Math.min(idx, PARKING_SPOTS.length - 1)];
+    });
+    return map;
+  }
+  
 function pickReturnTargetByPreference(preferredOrder, reserved, etaApprox) {
-  // Chọn bến có “ít nguy cơ” nhất: thử lần lượt 1.1 -> 1.2 -> ...,
-  // kiểm tra xem tại thời điểm etaApprox nó có bị reserve không.
+    // Chọn bến có “ít nguy cơ” nhất.
+    // IMPORTANT FIX: Không chỉ check đúng 1 tick (etaApprox),
+    // mà check cả một "window" vài tick sau đó vì hệ thống có reserveHold ở bến.
+    const HOLD_WINDOW = 12;
   for (const spot of preferredOrder) {
-    const tok = nodeToken(spot, etaApprox);
-    if (!reserved.has(tok)) return spot;
+        let ok = true;
+        for (let dt = 0; dt <= HOLD_WINDOW; dt++) {
+          if (reserved.has(nodeToken(spot, etaApprox + dt))) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) return spot;
   }
   return preferredOrder[preferredOrder.length - 1];
 }
@@ -108,7 +136,9 @@ export function planMultiCarsRoute({
     delayTicks: idx === 0 ? 0 : (v.delayTicks ?? idx * baseDelayTicks),
     delayMs: idx === 0 ? 0 : (v.delayMs ?? idx * baseDelayMs),
   }));
-
+    // Quyết định bến đỗ theo ETA (winner -> 1.1, các xe sau -> 1.2..1.5)
+    const assignedReturnTargets = assignReturnTargetsByETA(list);
+  
   // ưu tiên V1..Vn theo index (đúng yêu cầu)
   const reserved = new Set();
   const results = {};
@@ -125,9 +155,18 @@ export function planMultiCarsRoute({
     // ước lượng ETA để chọn bến đỗ hợp lý (ưu tiên 1.1)
     const etaApprox = estimateETA(start, goal, timeOffset);
 
-    // thử return target theo ưu tiên (1.1 trước)
-    const preferredReturn = PARKING_SPOTS;
-    const chosenReturn = pickReturnTargetByPreference(preferredReturn, reserved, etaApprox);
+        // BẾN ĐỖ:
+        // - assignedReturnTargets được quyết định theo ETA (winner -> 1.1)
+        // - nhưng nếu bến đó "bị reserve quá nhiều" ở thời điểm ETA thì fallback sang bến kế tiếp.
+        const assigned = assignedReturnTargets[v.id] || PARKING_SPOTS[0];
+    
+        // Ưu tiên: bến assigned trước, sau đó các bến còn lại
+        const preferredReturn = [
+          assigned,
+          ...PARKING_SPOTS.filter((p) => posKey(p) !== posKey(assigned)),
+        ];
+    
+        const chosenReturn = pickReturnTargetByPreference(preferredReturn, reserved, etaApprox);
 
     const fullPath = findSafePathWithReturn(
       start,

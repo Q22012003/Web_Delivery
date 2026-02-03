@@ -45,7 +45,17 @@ const buildDefaultCargo = () => ({ V1: "", V2: "" });
 export default function RealTime() {
   const navigate = useNavigate();
   const socketRef = useRef(null);
-
+  
+    // ===== REAL WORLD SYNC (IMPORTANT) =====
+    // Thay vì delay theo ms (UI nhanh/chậm khác thực tế), ta dùng "gate theo progress":
+    // Ví dụ: V2 chỉ bắt đầu khi V1 đã đi được N node (N = delayTicks).
+    const runGateRef = useRef({
+      running: false,
+      leadId: "V1",
+      progress: {}, // { V1: 0, ... }  số lần đổi node
+      lastPos: {},  // { V1: "1,1", ... } để chống đếm trùng
+      waiting: {},  // { V2: { leadTicks, path, cargo } }
+    });
   const [vehicles, setVehicles] = useState(buildDefaultVehicles());
   const [cargoAmounts, setCargoAmounts] = useState(buildDefaultCargo());
   const [alertMessage, setAlertMessage] = useState("");
@@ -116,6 +126,35 @@ useEffect(() => {
           : v
       )
     );
+    
+        // ===== Gate progress: start xe sau khi xe lead đi được N node (delayTicks) =====
+        const gate = runGateRef.current;
+       if (gate?.running) {
+          const key = `${pos[0]},${pos[1]}`;
+          const last = gate.lastPos?.[vid];
+    
+          // chỉ đếm khi xe thực sự đổi node (tránh spam cùng 1 QR)
+          if (key !== last) {
+            gate.lastPos[vid] = key;
+            gate.progress[vid] = (gate.progress[vid] || 0) + 1;
+    
+            // Khi lead xe (thường là V1) đã đi đủ leadTicks -> mở gate cho xe đang chờ
+            if (vid === gate.leadId) {
+              for (const [waitVid, w] of Object.entries(gate.waiting || {})) {
+                const need = Number(w?.leadTicks || 0);
+                if (gate.progress[gate.leadId] >= need) {
+                  setVehicles((prev) =>
+                    prev.map((x) =>
+                      x.id === waitVid ? { ...x, status: "moving", tripLog: w.path || [] } : x
+                    )
+                  );
+                  sendPathToBackend(waitVid, w.path, w.cargo);
+                  delete gate.waiting[waitVid];
+                }
+              }
+            }
+          }
+        }    
   });
 
   // ✅ FIX: hỗ trợ nhiều kiểu key khi backend emit xong job
@@ -250,16 +289,15 @@ useEffect(() => {
     });
   };
 
-const handleStartTogetherSafeMulti = () => {
-  const active = vehicles                // chỉ xe bật
-    .filter((v) => v.endPos)                  // phải có điểm đến
-    .filter((v) => v.id === "V1" || v.id === "V2") // ✅ cứng 2 xe
-    .map((v) => ({
-      id: v.id,
-      startPos: v.pos,
-      endPos: v.endPos,
-      delayMs: 0,
-    }));
+  const handleStartTogetherSafeMulti = () => {
+      const active = vehicles
+        .filter((v) => v.endPos)
+        .filter((v) => v.id === "V1" || v.id === "V2") // ✅ cứng 2 xe (nếu muốn mở rộng thì bỏ dòng này)
+        .map((v) => ({
+          id: v.id,
+          startPos: v.pos,
+          endPos: v.endPos,
+        }));
 
   if (active.length === 0) {
     setAlertMessage("⚠️ Chưa chọn xe / chưa có điểm đến!");
@@ -281,22 +319,57 @@ const handleStartTogetherSafeMulti = () => {
   }
 
     setIsRunningTogether(true);
-
-    // gửi lần lượt (delay theo thứ tự xe)
-    active.forEach((v, idx) => {
+  
+    // ===== Gate reset =====
+    const gate = runGateRef.current;
+    const leadId = active.some((x) => x.id === "V1") ? "V1" : active[0].id;
+  
+    gate.running = true;
+    gate.leadId = leadId;
+    gate.progress = {};
+    gate.lastPos = {};
+    gate.waiting = {};
+  
+    // init chống đếm trùng ngay node start
+    const leadStart =
+      result?.[leadId]?.fullPath?.[0] || active.find((x) => x.id === leadId)?.startPos;
+    if (leadStart) gate.lastPos[leadId] = `${leadStart[0]},${leadStart[1]}`;
+    gate.progress[leadId] = 0;
+  
+    // ===== Start lead ngay, xe còn lại sẽ start khi lead đi đủ delayTicks =====
+    active.forEach((v) => {
       const res = result[v.id];
       const fullPath = res?.fullPath;
-      const delayMs = idx * 3000; // giữ logic "xe sau đợi xe trước"
-      setTimeout(() => {
+  
+      if (!fullPath || fullPath.length < 2) {
+        setAlertMessage(`❌ ${v.id}: Lộ trình không hợp lệ!`);
+        setTimeout(() => setAlertMessage(""), 5000);
+        return;
+      }
+  
+      addPathLog(v.id, fullPath);
+  
+      const cargo = cargoAmounts[v.id] ?? "";
+  
+      if (v.id === leadId) {
         setVehicles((prev) =>
-          prev.map((x) =>
-            x.id === v.id ? { ...x, status: "moving", tripLog: fullPath || [] } : x
-          )
+          prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
         );
-
-        const cargo = cargoAmounts[v.id] ?? "";
         sendPathToBackend(v.id, fullPath, cargo);
-      }, delayMs);
+        return;
+      }
+  
+      const leadTicks = Number(res?.delayTicks ?? 4);
+  
+      if (leadTicks <= 0) {
+        setVehicles((prev) =>
+          prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
+        );
+        sendPathToBackend(v.id, fullPath, cargo);
+        return;
+      }
+  
+      gate.waiting[v.id] = { leadTicks, path: fullPath, cargo };
     });
   };
 
@@ -491,7 +564,7 @@ const handleStartTogetherSafeMulti = () => {
                       // chạy 1 xe: plan riêng rồi gửi
                       const result = planMultiCarsRoute({
                         vehicles: [{ id: v.id, startPos: v.pos, endPos: v.endPos }],
-                        baseDelayTicks: 4,
+                        baseDelayTicks: 2,
                         baseDelayMs: 3500,
                         maxCars: 2,
                       });
