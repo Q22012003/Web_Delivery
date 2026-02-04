@@ -2,24 +2,6 @@
 import { Link } from "react-router-dom";
 
 export default function PageSwitchButtons() {
-  const baseBg = "rgba(96,165,250,0.15)";
-  const hoverBg = "rgba(96,165,250,0.25)";
-
-  const btnStyle = {
-    width: "clamp(180px, 22vw, 260px)",
-    aspectRatio: "3 / 1",
-    fontSize: "clamp(1rem, 1.4vw, 1.4rem)",
-    background: baseBg,
-    color: "#60a5fa",
-    border: "2px solid rgba(96,165,250,0.4)",
-    borderRadius: 14,
-    fontWeight: "bold",
-    cursor: "pointer",
-    backdropFilter: "blur(4px)",
-    boxShadow: "0 0 25px rgba(96,165,250,0.25)",
-    transition: "0.2s",
-  };
-
   return (
     <div
       style={{
@@ -33,9 +15,22 @@ export default function PageSwitchButtons() {
     >
       <Link to="/">
         <button
-          style={btnStyle}
-          onMouseEnter={(e) => (e.target.style.background = hoverBg)}
-          onMouseLeave={(e) => (e.target.style.background = baseBg)}
+          style={{
+            width: "clamp(180px, 22vw, 260px)",
+            aspectRatio: "3 / 1",
+            fontSize: "clamp(1rem, 1.4vw, 1.4rem)",
+            background: "rgba(96,165,250,0.15)",
+            color: "#60a5fa",
+            border: "2px solid rgba(96,165,250,0.4)",
+            borderRadius: 14,
+            fontWeight: "bold",
+            cursor: "pointer",
+            backdropFilter: "blur(4px)",
+            boxShadow: "0 0 25px rgba(96,165,250,0.25)",
+            transition: "0.2s",
+          }}
+          onMouseEnter={(e) => (e.target.style.background = "rgba(96,165,250,0.25)")}
+          onMouseLeave={(e) => (e.target.style.background = "rgba(96,165,250,0.15)")}
         >
           MÔ PHỎNG
         </button>
@@ -43,9 +38,22 @@ export default function PageSwitchButtons() {
 
       <Link to="/real-time">
         <button
-          style={btnStyle}
-          onMouseEnter={(e) => (e.target.style.background = hoverBg)}
-          onMouseLeave={(e) => (e.target.style.background = baseBg)}
+          style={{
+            width: "clamp(180px, 22vw, 260px)",
+            aspectRatio: "3 / 1",
+            fontSize: "clamp(1rem, 1.4vw, 1.4rem)",
+            background: "rgba(96,165,250,0.15)",
+            color: "#60a5fa",
+            border: "2px solid rgba(96,165,250,0.4)",
+            borderRadius: 14,
+            fontWeight: "bold",
+            cursor: "pointer",
+            backdropFilter: "blur(4px)",
+            boxShadow: "0 0 25px rgba(96,165,250,0.25)",
+            transition: "0.2s",
+          }}
+          onMouseEnter={(e) => (e.target.style.background = "rgba(96,165,250,0.25)")}
+          onMouseLeave={(e) => (e.target.style.background = "rgba(96,165,250,0.25)")}
         >
           CHẠY THỜI GIAN THỰC
         </button>

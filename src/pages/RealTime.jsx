@@ -9,12 +9,36 @@ import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
 import ControlPanel from "../components/ControlPanel";
-
+import { aStarSearch } from "../utils/aStar";
 import { planMultiCarsRoute, pathToMcuCommands } from "../utils/routePlanner";
 
 const SOCKET_SERVER_URL =
-  import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
-  const SIDEBAR_W = 280; // đúng bằng width sidebar của bạn
+  import.meta.env.VITE_SOCKET_URL || `${window.location.protocol}//${window.location.hostname}:5000`;
+const API_BASE = (import.meta.env.VITE_API_URL || SOCKET_SERVER_URL).replace(/\/$/, "");
+  
+// ===== helpers =====
+const isPos = (p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(+p[0]) && Number.isFinite(+p[1]);
+const toCsv = (p) => (isPos(p) ? `${p[0]},${p[1]}` : null);
+const normalizePos = (p) => {
+  if (!p) return null;
+  if (isPos(p)) return [Number(p[0]), Number(p[1])];
+  if (typeof p === "string") {
+    const s = p.trim().replace(".", ",");
+    const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const a = Number(parts[0]);
+      const b = Number(parts[1]);
+      if (Number.isFinite(a) && Number.isFinite(b)) return [a, b];
+    }
+  }
+  if (typeof p === "object" && p !== null) {
+    const a = p.row ?? p.r ?? p.x ?? p.i;
+    const b = p.col ?? p.c ?? p.y ?? p.j;
+    if (Number.isFinite(+a) && Number.isFinite(+b)) return [Number(a), Number(b)];
+  }
+  return null;
+};
+const SIDEBAR_W = 280; // đúng bằng width sidebar của bạn
   const PAGE_GAP = 20;
   
 const HOME = [1, 1];
@@ -55,6 +79,9 @@ export default function RealTime() {
       progress: {}, // { V1: 0, ... }  số lần đổi node
       lastPos: {},  // { V1: "1,1", ... } để chống đếm trùng
       waiting: {},  // { V2: { leadTicks, path, cargo } }
+      batchId: null,
+      batchVehicles: [],
+      done: {},
     });
   const [vehicles, setVehicles] = useState(buildDefaultVehicles());
   const [cargoAmounts, setCargoAmounts] = useState(buildDefaultCargo());
@@ -63,6 +90,30 @@ export default function RealTime() {
   const [logs, setLogs] = useState([]);
   const [deliveryCounters, setDeliveryCounters] = useState({ V1: 0, V2: 0 });
   const [isRunningTogether, setIsRunningTogether] = useState(false);
+  // ===== helpers =====
+  const normalizePos = (p) => {
+    if (!p) return null;
+    if (Array.isArray(p) && p.length === 2) return [Number(p[0]), Number(p[1])];
+    if (typeof p === "string") {
+      const s = p.trim().replace(".", ",");
+      const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
+      if (parts.length === 2) return [Number(parts[0]), Number(parts[1])];
+    }
+    return null;
+  };
+
+  const debugLog = (msg) => {
+    const now = new Date().toLocaleString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    setLogs((prev) => [`[${now}] 🧪 ${msg}`, ...prev].slice(0, 200));
+  };
+
+  const startTimersRef = useRef({}); // { V2: timeoutId, ... }
+
 
   const v1 = vehicles.find((v) => v.id === "V1");
   const v2 = vehicles.find((v) => v.id === "V2");
@@ -148,12 +199,38 @@ useEffect(() => {
                       x.id === waitVid ? { ...x, status: "moving", tripLog: w.path || [] } : x
                     )
                   );
-                  sendPathToBackend(waitVid, w.path, w.cargo);
+                  sendPathToBackend(waitVid, w.path, w.cargo, w.meta);
+                  if (startTimersRef.current[waitVid]) { clearTimeout(startTimersRef.current[waitVid]); delete startTimersRef.current[waitVid]; }
                   delete gate.waiting[waitVid];
                 }
               }
             }
           }
+
+        // ===== Gate finish: khi tất cả xe trong batch đã DONE/IDLE thì mở lại nút "CHẠY CÙNG LÚC" =====
+        if (gate?.running) {
+          if (isTerminal) {
+            gate.done[vid] = true;
+          }
+          const list = Array.isArray(gate.batchVehicles) ? gate.batchVehicles : [];
+          const allDone = list.length > 0 && list.every((id) => gate.done?.[id]);
+          const noWaiting = !gate.waiting || Object.keys(gate.waiting).length === 0;
+
+          if (allDone && noWaiting) {
+            gate.running = false;
+            gate.batchVehicles = [];
+            gate.done = {};
+            gate.progress = {};
+            gate.lastPos = {};
+            gate.waiting = {};
+            gate.leadId = "V1";
+            gate.batchId = null;
+            // clear any pending delayed starts
+            Object.keys(startTimersRef.current || {}).forEach((k) => { try { clearTimeout(startTimersRef.current[k]); } catch(e){} });
+            startTimersRef.current = {};
+            setIsRunningTogether(false);
+          }
+        }
         }    
   });
 
@@ -193,21 +270,19 @@ useEffect(() => {
     return () => clearInterval(interval);
   }, []);
 
-  const sendPathToBackend = async (vehicleId, fullPath, cargo) => {
+  const sendPathToBackend = async (vehicleId, fullPath, cargo, meta = {}) => {
     if (!fullPath || fullPath.length < 2) {
       setAlertMessage("Lộ trình không hợp lệ!");
       setTimeout(() => setAlertMessage(""), 4000);
       return;
     }
-  
-    const toCsv = (p) => `${p[0]},${p[1]}`;
     const formattedPath = fullPath.map(toCsv);
     const formattedStartPoint = toCsv(fullPath[0]);
   
     const { commands } = pathToMcuCommands(fullPath, { normalizeAtEnd: true });
   
     try {
-      const res = await fetch("http://localhost:5000/api/car/navigate", {
+      const res = await fetch(`${API_BASE}/api/car/navigate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -216,6 +291,7 @@ useEffect(() => {
           cargo,
           startPoint: formattedStartPoint,
           commands,
+          meta,
         }),
       });
   
@@ -291,13 +367,23 @@ useEffect(() => {
 
   const handleStartTogetherSafeMulti = () => {
       const active = vehicles
-        .filter((v) => v.endPos)
-        .filter((v) => v.id === "V1" || v.id === "V2") // ✅ cứng 2 xe (nếu muốn mở rộng thì bỏ dòng này)
+        .filter((v) => v.id === "V1" || v.id === "V2") // ✅ chỉ chạy 2 xe (V1,V2) vì chỉ có 2 chứng chỉ AWS
         .map((v) => ({
           id: v.id,
-          startPos: v.pos,
-          endPos: v.endPos,
-        }));
+          startPos: normalizePos(v.pos),
+          endPos: normalizePos(v.endPos),
+        }))
+        .filter((v) => v.startPos && v.endPos);
+
+  // Nút "chạy cùng lúc" yêu cầu đủ 2 xe (V1 & V2) có điểm đến hợp lệ
+  const hasV1 = active.some((v) => v.id === "V1");
+  const hasV2 = active.some((v) => v.id === "V2");
+  if (!hasV1 || !hasV2) {
+    setAlertMessage("⚠️ Cần đặt điểm đến hợp lệ cho cả V1 và V2 trước khi chạy cùng lúc!");
+    setTimeout(() => setAlertMessage(""), 5000);
+    debugLog(`active thiếu xe: hasV1=${hasV1}, hasV2=${hasV2}`);
+    return;
+  }
 
   if (active.length === 0) {
     setAlertMessage("⚠️ Chưa chọn xe / chưa có điểm đến!");
@@ -318,7 +404,10 @@ useEffect(() => {
     return;
   }
 
-    setIsRunningTogether(true);
+    
+  debugLog(`active=${active.map(v=>v.id+":"+v.startPos.join(",")+"->"+v.endPos.join(",")).join(" | ")}`);
+  debugLog(`planner keys=${Object.keys(result||{}).join(",")}`);
+setIsRunningTogether(true);
   
     // ===== Gate reset =====
     const gate = runGateRef.current;
@@ -329,6 +418,9 @@ useEffect(() => {
     gate.progress = {};
     gate.lastPos = {};
     gate.waiting = {};
+    gate.batchId = Date.now();
+    gate.batchVehicles = active.map((x) => x.id);
+    gate.done = {};
   
     // init chống đếm trùng ngay node start
     const leadStart =
@@ -340,6 +432,7 @@ useEffect(() => {
     active.forEach((v) => {
       const res = result[v.id];
       const fullPath = res?.fullPath;
+      const meta = res?.meta || {};
   
       if (!fullPath || fullPath.length < 2) {
         setAlertMessage(`❌ ${v.id}: Lộ trình không hợp lệ!`);
@@ -350,26 +443,71 @@ useEffect(() => {
       addPathLog(v.id, fullPath);
   
       const cargo = cargoAmounts[v.id] ?? "";
-  
+      
+            // ===== META đồng bộ ETA (giống Home.jsx) =====
+            const delayTicks = (v.id === leadId) ? Number(res?.delayTicks ?? 0) : 3; // V2 must wait 3 ticks after V1
+            const goalPos = v.endPos;
+            const startPosForEta = v.startPos;
+            const naive = (startPosForEta && goalPos) ? aStarSearch(startPosForEta, goalPos, true, [1, 1]) : null;
+            const etaGoalTicks = naive ? (naive.length - 1 + delayTicks) : null;
+            const metaPayload = {
+              ...meta,
+              batchId: gate.batchId,
+          leadId: leadId,
+              goalPos: goalPos ? toCsv(goalPos) : null,
+              delayTicks,
+              etaGoalTicks,
+            };
+      
       if (v.id === leadId) {
         setVehicles((prev) =>
           prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
         );
-        sendPathToBackend(v.id, fullPath, cargo);
+        sendPathToBackend(v.id, fullPath, cargo, metaPayload);
+
         return;
       }
   
-      const leadTicks = Number(res?.delayTicks ?? 4);
+      const leadTicks = 4; // ✅ bắt buộc: V2 đợi V1 đi 3 tick rồi mới start
   
       if (leadTicks <= 0) {
         setVehicles((prev) =>
           prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
         );
-        sendPathToBackend(v.id, fullPath, cargo);
+        sendPathToBackend(v.id, fullPath, cargo, metaPayload);
         return;
       }
   
-      gate.waiting[v.id] = { leadTicks, path: fullPath, cargo };
+      gate.waiting[v.id] = { leadTicks, path: fullPath, cargo, meta: metaPayload };
+      // Fallback: nếu không nhận được đủ "car:position" (thực tế QR/ACK chậm),
+      // vẫn cho xe start theo thời gian delayMs để nút "chạy cùng lúc" luôn hoạt động.
+      const delayMs = Number(res?.delayMs ?? (leadTicks * 1000));
+      if (delayMs > 0) {
+        if (startTimersRef.current[v.id]) clearTimeout(startTimersRef.current[v.id]);
+        startTimersRef.current[v.id] = setTimeout(() => {
+          const w = gate.waiting?.[v.id];
+          if (!w) return; // đã start bằng gate progress rồi
+
+          // ✅ Không cho start sớm: chỉ start khi V1 đã đi đủ 3 tick (theo yêu cầu)
+          const leadNow = gate.leadId;
+          const need = Number(w?.leadTicks || 3);
+          const prog = Number(gate.progress?.[leadNow] || 0);
+          if (prog < need) {
+            debugLog(`${v.id} fallback fired (${delayMs}ms) nhưng V1 mới đi ${prog}/${need} tick -> vẫn chờ`);
+            return;
+          }
+
+          debugLog(`${v.id} fallback start after ${delayMs}ms (V1 ${prog}/${need} tick)`);
+          setVehicles((prev) =>
+            prev.map((x) =>
+              x.id === v.id ? { ...x, status: "moving", tripLog: w.path || [] } : x
+            )
+          );
+          sendPathToBackend(v.id, w.path, w.cargo, w.meta);
+          delete gate.waiting[v.id];
+        }, delayMs);
+      }
+
     });
   };
 
@@ -563,12 +701,23 @@ useEffect(() => {
                     onStart={() => {
                       // chạy 1 xe: plan riêng rồi gửi
                       const result = planMultiCarsRoute({
-                        vehicles: [{ id: v.id, startPos: v.pos, endPos: v.endPos }],
+                        vehicles: [{ id: v.id, startPos: v.pos, endPos: normalizePos(v.endPos) }],
                         baseDelayTicks: 2,
                         baseDelayMs: 3500,
                         maxCars: 2,
                       });
                       const fullPath = result?.[v.id]?.fullPath;
+                      let meta = result?.[v.id]?.meta || {};
+                      const delayTicks = Number(result?.[v.id]?.delayTicks ?? 0);
+                      const goalPos = v.endPos;
+                      const etaGoalTicks = fullPath ? (fullPath.length - 1 + delayTicks) : null;
+                      meta = {
+                        ...meta,
+                        batchId: Date.now(),
+                        goalPos: goalPos ? `${goalPos[0]},${goalPos[1]}` : null,
+                        delayTicks,
+                        etaGoalTicks,
+                      };
                       setVehicles((prev) =>
                         prev.map((x) =>
                           x.id === v.id
@@ -578,7 +727,7 @@ useEffect(() => {
                       );
                       addPathLog(v.id, fullPath);
                       const cargo = cargoAmounts[v.id] ?? "";
-                      sendPathToBackend(v.id, fullPath, cargo);
+                      sendPathToBackend(v.id, fullPath, cargo, meta);
                     }}
                   />
 
@@ -649,7 +798,7 @@ useEffect(() => {
                 boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
               }}
             >
-              {isRunningTogether ? "ĐANG CHẠY..." : "CHẠY CÙNG LÚC (V1→V5, delay tuần tự)"}
+              {isRunningTogether ? "ĐANG CHẠY..." : "CHẠY CÙNG LÚC (V1 & V2, delay tuần tự)"}
             </button>
 
             {alertMessage && (

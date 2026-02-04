@@ -332,7 +332,7 @@ export function findSafePathWithReturn(
   
       if (candidate && candidate.length >= 2) {
         returnPath = candidate;
-        chosenWait = wait; // +2 tick buffer giống logic cũ
+        chosenWait = wait; 
         break;
       }
     }

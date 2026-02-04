@@ -23,11 +23,13 @@ connectToAwsIot();
 
 // --- API NHẬN LỘ TRÌNH (ĐÃ SỬA ĐỂ KHÔNG BỊ LỖI) ---
 app.post("/api/car/navigate", (req, res) => {
-  let { vehicle_id, path, startPoint } = req.body;
+    let { vehicle_id, path, startPoint, cargo, commands, meta, metaInfo } = req.body;
+    // ✅ backward-compatible: UI cũ có thể gửi metaInfo thay vì meta
+    if (!meta && metaInfo) meta = metaInfo;
 
   const allowed = new Set(["V1","V2","V3","V4","V5"]);
-  if (!vehicle_id || (vehicle_id !== "V1" && vehicle_id !== "V2")) {
-    return res.status(400).json({ error: "vehicle_id phải là 'V1' hoặc 'V2'" });
+    if (!vehicle_id || !allowed.has(vehicle_id)) {
+    return res.status(400).json({ error: "vehicle_id phải là 'V1'..'V5'" });
   }
 
   if (!path || !Array.isArray(path) || path.length === 0) {
@@ -42,7 +44,7 @@ app.post("/api/car/navigate", (req, res) => {
   }
 
   try {
-    startNavigationSequence(vehicle_id, path, startPoint);
+    startNavigationSequence(vehicle_id, path, startPoint, meta || {});
     res.json({ success: true, message: `Đã nhận lệnh cho ${vehicle_id}. Xuất phát từ ${startPoint}` });
   } catch (error) {
     console.error("Lỗi khi gọi startNavigationSequence:", error);

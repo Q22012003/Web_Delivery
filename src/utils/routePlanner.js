@@ -92,11 +92,18 @@ function assignReturnTargetsByETA(vehicles) {
       }))
       .sort((a, b) => a.eta - b.eta);
   
-    const map = {};
-    ranked.forEach((x, idx) => {
-      map[x.id] = PARKING_SPOTS[Math.min(idx, PARKING_SPOTS.length - 1)];
-    });
-    return map;
+        const returnMap = {};
+        const rankMap = {};
+        ranked.forEach((x, idx) => {
+          returnMap[x.id] = PARKING_SPOTS[Math.min(idx, PARKING_SPOTS.length - 1)];
+          rankMap[x.id] = idx; // 0 = winner
+        });
+        return {
+          ranked,
+          returnMap,
+          rankMap,
+          winnerId: ranked[0]?.id || null,
+        };
   }
   
 function pickReturnTargetByPreference(preferredOrder, reserved, etaApprox) {
@@ -137,7 +144,8 @@ export function planMultiCarsRoute({
     delayMs: idx === 0 ? 0 : (v.delayMs ?? idx * baseDelayMs),
   }));
     // Quyết định bến đỗ theo ETA (winner -> 1.1, các xe sau -> 1.2..1.5)
-    const assignedReturnTargets = assignReturnTargetsByETA(list);
+    const etaInfo = assignReturnTargetsByETA(list);
+    const assignedReturnTargets = etaInfo.returnMap;
   
   // ưu tiên V1..Vn theo index (đúng yêu cầu)
   const reserved = new Set();
@@ -196,6 +204,12 @@ export function planMultiCarsRoute({
       delayMs: v.delayMs,
       delayTicks: v.delayTicks,
       returnTarget: finalPos,
+      meta: {
+              etaGoal: etaInfo.ranked.find((x) => x.id === v.id)?.eta ?? etaApprox,
+              rank: etaInfo.rankMap?.[v.id] ?? 999,   // 0 = winner
+              winnerId: etaInfo.winnerId,
+              assignedReturn: assigned,
+      },
     };
   }
 
@@ -236,8 +250,8 @@ function turnNeeded(fromHeading, toHeading) {
   if (i === -1 || j === -1) return null;
   const diff = (j - i + 4) % 4;
   if (diff === 0) return [];
-  if (diff === 1) return ["RIGHT"];
-  if (diff === 3) return ["LEFT"];
+  if (diff === 1) return ["LEFT"];
+  if (diff === 3) return ["RIGHT"];
   if (diff === 2) return ["BACK"]; // u-turn 180
   return null;
 }
