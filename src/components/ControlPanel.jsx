@@ -1,22 +1,23 @@
 export default function ControlPanel({ vehicle, onChange, onStart }) {
   const { id, endPos, status } = vehicle;
 
-  // ✅ FIX LỖI: tương thích cả Home (startPos) và RealTime (pos)
+  const getDefaultStartPos = (vehicleId) => {
+    // V1 -> [1,1], V2 -> [1,2], ...
+    const m = String(vehicleId ?? "").match(/\d+/);
+    const n = m ? Number(m[0]) : 1;
+    const y = Math.min(5, Math.max(1, n));
+    return [1, y];
+  };
+
+  // ✅ Vị trí xuất phát: chỉ hiển thị (user không được chỉnh)
+  // Ưu tiên startPos (Home), fallback pos (RealTime), fallback theo id.
   const startPos = Array.isArray(vehicle.startPos)
     ? vehicle.startPos
     : Array.isArray(vehicle.pos)
     ? vehicle.pos
-    : [1, 1];
+    : getDefaultStartPos(id);
 
   const safeEndPos = Array.isArray(endPos) ? endPos : [5, 1];
-
-  const startPoints = [
-    [1, 1],
-    [1, 2],
-    [1, 3],
-    [1, 4],
-    [1, 5],
-  ];
 
   const endPoints = [
     [5, 1],
@@ -41,29 +42,28 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
         XE {id} – GIAO HÀNG
       </h3>
 
-      {/* ===== START POSITION ===== */}
+      {/* ===== START POSITION (READ-ONLY) ===== */}
       <div style={{ marginBottom: 12 }}>
         <label>
-          <strong>Xuất phát:</strong>
+          <strong>Xuất phát (tự động):</strong>
         </label>
-        <select
-          value={startPos.join(",")}
-          onChange={(e) => {
-            const newPos = e.target.value.split(",").map(Number);
-
-            // ✅ update đồng bộ cho Home + RealTime
-            onChange("startPos", newPos);
-            onChange("pos", newPos);
+        <input
+          value={`${startPos[0]}.${startPos[1]}`}
+          readOnly
+          style={{
+            width: "100%",
+            boxSizing: "border-box",
+            padding: 8,
+            marginTop: 4,
+            background: "#f3f3f3",
+            border: "1px solid #ccc",
+            borderRadius: 6,
+            color: "#333",
           }}
-          disabled={status === "moving"}
-          style={{ width: "100%", padding: 8, marginTop: 4 }}
-        >
-          {startPoints.map((p) => (
-            <option key={p.join(",")} value={p.join(",")}>
-              [{p.join(", ")}]
-            </option>
-          ))}
-        </select>
+        />
+        <div style={{ fontSize: 12, marginTop: 6, color: "#666" }}>
+          Bạn chỉ xem vị trí xuất phát. Hệ thống sẽ tự cập nhật nếu xe về bến đỗ khác.
+        </div>
       </div>
 
       {/* ===== END POSITION ===== */}
@@ -77,7 +77,7 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
             onChange("endPos", e.target.value.split(",").map(Number))
           }
           disabled={status === "moving"}
-          style={{ width: "100%", padding: 8, marginTop: 4 }}
+          style={{ width: "100%", boxSizing: "border-box", padding: 8, marginTop: 4 }}
         >
           {endPoints.map((p) => (
             <option key={p.join(",")} value={p.join(",")}>
@@ -93,6 +93,7 @@ export default function ControlPanel({ vehicle, onChange, onStart }) {
         disabled={status === "moving"}
         style={{
           width: "100%",
+          boxSizing: "border-box",
           padding: 12,
           fontSize: 16,
           background: status === "moving" ? "#999" : "#1976d2",

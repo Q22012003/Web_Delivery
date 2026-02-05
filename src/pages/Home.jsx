@@ -186,7 +186,9 @@ export default function Home() {
 
   // ===== UPDATE endPos only (lock startPos) =====
   const updateVehicle = (vehicleId, field, value) => {
-    if (field === "startPos") return;
+    const f = String(field || "").toLowerCase();
+    // 🔒 user chỉ thấy vị trí bắt đầu, không được chỉnh
+    if (f === "startpos" || f.startsWith("start")) return;
     moveVehicleById(vehicleId, (v) => ({ ...v, [field]: value }));
   };
 
@@ -203,30 +205,23 @@ export default function Home() {
       }
       if (current.status === "moving") return;
 
-      // nếu có xe khác idle ở 1.1 => đẩy sang bến đỗ để tránh xe này quay về
+      // xác định điểm về: ưu tiên HOME (user = 1.1). Nếu HOME đang bị chiếm, xe sẽ về bến đỗ khác
       const others = vehicles.filter((v) => v.id !== vehicleId);
-      const occupied = vehicles.map((v) => v.pos);
+      const occupied = others.map((v) => v.pos);
 
-      const blocking = others.filter((v) => v.status !== "moving" && samePos(v.pos, HOME));
-      if (blocking.length > 0) {
-        for (const b of blocking) {
-          const park = pickParkingSpot(occupied);
-          const parkPath = aStarSearch(b.pos, park, false);
-          if (parkPath && parkPath.length > 1) {
-            moveVehicleById(b.id, (prev) => ({
-              ...prev,
-              path: parkPath.slice(1),
-              status: "moving",
-              tripLog: parkPath,
-              activeCargo: 0,
-            }));
-            addLog(b.id, 0, `Di chuyển sang bến đỗ ${park[0]}.${park[1]} để tránh va chạm`);
-          }
-        }
+      const homeOccupied = others.some((v) => samePos(v.pos, HOME));
+      const returnSpot = homeOccupied ? pickParkingSpot(occupied) : HOME;
+
+      if (homeOccupied) {
+        addLog(
+          "System",
+          0,
+          `🏁 ${vehicleId} sẽ không về 1.1 (đang có xe khác), chuyển về bến đỗ ${returnSpot[0]}.${returnSpot[1]}`
+        );
       }
 
-      // A* đi giao xong quay về 1.1
-      const fullPath = aStarSearch(current.pos, current.endPos, true, HOME);
+      // A* đi giao xong quay về điểm ưu tiên (HOME hoặc bến đỗ thay thế)
+      const fullPath = aStarSearch(current.pos, current.endPos, true, returnSpot);
       if (!fullPath || fullPath.length < 2) {
         alert(`Xe ${vehicleId}: Không tìm thấy đường!`);
         return;
@@ -352,9 +347,10 @@ export default function Home() {
           }
 
           const nextPath = vehicle.path.slice(1);
-          const nextStatus = vehicle.path.length === 1 ? "idle" : "moving";
+          const nextIsIdle = vehicle.path.length === 1;
+          const nextStatus = nextIsIdle ? "idle" : "moving";
 
-          return {
+          const updated = {
             ...vehicle,
             prevPos: vehicle.pos,
             pos: nextPos,
@@ -362,6 +358,13 @@ export default function Home() {
             status: nextStatus,
             activeCargo: currentCargo,
           };
+
+          // ✅ Khi xe dừng (kết thúc chuyến), cập nhật vị trí xuất phát mới để ControlPanel hiển thị đúng
+          if (nextIsIdle) {
+            updated.startPos = nextPos;
+          }
+
+          return updated;
         })
       );
     }, 1000);
