@@ -6,6 +6,7 @@ import RealTime from "./pages/RealTime";
 import Alert from "./pages/Alert"; 
 import Sidebar from "./components/Sidebar";   // thêm dòng này
 import Inventory from "./pages/Inventory";
+import FleetStatus from "./pages/Fleet";
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/real-time" element={<RealTime />} />
             <Route path="/alert" element={<Alert />} />
+            <Route path="/fleet-status" element={<FleetStatus />} />
           </Routes>
         </div>
       </div>

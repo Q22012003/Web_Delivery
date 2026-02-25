@@ -66,6 +66,163 @@ const buildDefaultVehicles = () => ([
 
 const buildDefaultCargo = () => ({ V1: "", V2: "" });
 
+// ===== parse cargo: hỗ trợ nhập dạng "10 Laptop" hoặc "10|Laptop" =====
+const parseCargoInput = (raw) => {
+  const s = String(raw ?? "").trim();
+  if (!s) return { qty: 0, itemName: "", raw: "" };
+  const m = s.match(/^\s*(\d+)\s*(?:\||-|:)?\s*(.*)\s*$/);
+  if (m) {
+    const qty = Number(m[1] || 0);
+    const itemName = String(m[2] || "").trim();
+    return { qty: Number.isFinite(qty) ? qty : 0, itemName, raw: s };
+  }
+  const qty = parseInt(s, 10);
+  return { qty: Number.isFinite(qty) ? qty : 0, itemName: "", raw: s };
+};
+
+// ===== update Inventory (localStorage) =====
+const updateInventoryStorage = (destCsv, cargoRaw) => {
+  if (!destCsv) return;
+  const parsed = parseCargoInput(cargoRaw);
+  const qty = parseInt(parsed.qty, 10);
+  const itemName = String(parsed.itemName || "").trim();
+  if (!qty || qty <= 0) return;
+
+  const validWarehouses = ["5,1", "5,2", "5,3", "5,4", "5,5"];
+  if (!validWarehouses.includes(destCsv)) return;
+
+  // 1) Tổng tồn kho theo vị trí
+  try {
+    const stock = JSON.parse(localStorage.getItem("warehouse_stock") || "{}");
+    const oldQty = Number(stock?.[destCsv] || 0);
+    const newQty = oldQty + qty;
+    stock[destCsv] = newQty;
+    localStorage.setItem("warehouse_stock", JSON.stringify(stock));
+  } catch {}
+
+  // 2) Item theo kho (inventory_goods_v1)
+  try {
+    const GOODS_KEY = "inventory_goods_v1";
+    const raw = localStorage.getItem(GOODS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    const goods = Array.isArray(arr) ? arr : [];
+    const norm = (s) => String(s || "").trim().toLowerCase();
+
+    const sysId = `SYS_${destCsv}`;
+    const nameToFind = itemName ? norm(itemName) : null;
+
+    let idx = -1;
+    if (nameToFind) {
+      idx = goods.findIndex(
+        (g) => norm(g?.warehouseKey) === destCsv && !g?.system && norm(g?.name) === nameToFind
+      );
+    }
+
+    if (idx >= 0) {
+      const old = Number(goods[idx]?.qty || 0);
+      goods[idx] = { ...goods[idx], qty: old + qty };
+    } else {
+      const sysIdx = goods.findIndex((g) => g?.id === sysId || (g?.system && norm(g?.warehouseKey) === destCsv));
+      if (sysIdx >= 0) {
+        const old = Number(goods[sysIdx]?.qty || 0);
+        goods[sysIdx] = { ...goods[sysIdx], id: sysId, system: true, warehouseKey: destCsv, name: goods[sysIdx]?.name || "Khác", qty: old + qty };
+      } else {
+        goods.push({
+          id: sysId,
+          system: true,
+          warehouseKey: destCsv,
+          name: "Khác",
+          positionDetail: "",
+          qty: qty,
+          target: 0,
+          createdAtIso: new Date().toISOString(),
+        });
+      }
+
+      // auto create nếu user nhập tên hàng
+      if (nameToFind) {
+        goods.push({
+          id: `G${Date.now()}`,
+          system: false,
+          warehouseKey: destCsv,
+          name: itemName,
+          positionDetail: "",
+          qty: qty,
+          target: 0,
+          createdAtIso: new Date().toISOString(),
+        });
+      }
+    }
+
+    localStorage.setItem(GOODS_KEY, JSON.stringify(goods));
+  } catch {}
+};
+// ===== localStorage keys =====
+const RT_KEYS = {
+  vehicles: "realtime_vehicles_state",
+  logs: "realtime_logs",
+  cargo: "realtime_cargo_amounts_v1",
+  counters: "realtime_delivery_counters_v1",
+};
+
+const safeParseLS = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+};
+
+const normalizeVehicleForState = (v) => {
+  if (!v || typeof v !== "object") return null;
+  const id = String(v.id || "").trim();
+  if (!id) return null;
+
+  const m = id.match(/^V(\d+)$/i);
+  const idx = m ? Number(m[1]) - 1 : 0;
+  const fallbackPos = START_SPOTS[idx] || START_SPOTS[0];
+  const fallbackEnd = [5, 1];
+
+  const pos = isPos(v.pos) ? [Number(v.pos[0]), Number(v.pos[1])] : null;
+  const endPos = isPos(v.endPos) ? [Number(v.endPos[0]), Number(v.endPos[1])] : null;
+
+  return {
+    ...makeVehicle(id, pos || fallbackPos, endPos || fallbackEnd),
+    ...v,
+    id,
+    pos: pos || fallbackPos,
+    endPos: endPos || fallbackEnd,
+    status: v.status || "idle",
+    tripLog: Array.isArray(v.tripLog) ? v.tripLog : [],
+  };
+};
+
+const loadVehicles = () => {
+  const saved = safeParseLS(RT_KEYS.vehicles, null);
+  if (Array.isArray(saved) && saved.length) {
+    const norm = saved.map(normalizeVehicleForState).filter(Boolean);
+    if (norm.length) return norm;
+  }
+  return buildDefaultVehicles();
+};
+
+const loadLogs = () => {
+  const saved = safeParseLS(RT_KEYS.logs, []);
+  return Array.isArray(saved) ? saved : [];
+};
+
+const loadCargo = () => {
+  const saved = safeParseLS(RT_KEYS.cargo, null);
+  return saved && typeof saved === "object" ? saved : buildDefaultCargo();
+};
+
+const loadCounters = () => {
+  const saved = safeParseLS(RT_KEYS.counters, null);
+  return saved && typeof saved === "object" ? saved : { V1: 0, V2: 0 };
+};
+
 export default function RealTime() {
   const navigate = useNavigate();
   const socketRef = useRef(null);
@@ -83,13 +240,101 @@ export default function RealTime() {
       batchVehicles: [],
       done: {},
     });
-  const [vehicles, setVehicles] = useState(buildDefaultVehicles());
-  const [cargoAmounts, setCargoAmounts] = useState(buildDefaultCargo());
+  const [vehicles, setVehicles] = useState(loadVehicles);
+  const [cargoAmounts, setCargoAmounts] = useState(loadCargo);
   const [alertMessage, setAlertMessage] = useState("");
   const [blink, setBlink] = useState(false);
-  const [logs, setLogs] = useState([]);
-  const [deliveryCounters, setDeliveryCounters] = useState({ V1: 0, V2: 0 });
+  const [logs, setLogs] = useState(loadLogs);
+  const [deliveryCounters, setDeliveryCounters] = useState(loadCounters);
   const [isRunningTogether, setIsRunningTogether] = useState(false);
+
+  // ===== Persist to Inventory page (localStorage) =====
+  const activeTripRef = useRef({}); // { V1: deliveryId, ... }
+  const tripMetaRef = useRef({}); // { V1: { destCsv, cargoRaw }, ... } (để cập nhật inventory khi car:reached)
+
+  useEffect(() => {
+    try { localStorage.setItem(RT_KEYS.vehicles, JSON.stringify(vehicles)); } catch (e) {}
+  }, [vehicles]);
+
+  useEffect(() => {
+    try { localStorage.setItem(RT_KEYS.logs, JSON.stringify(logs)); } catch (e) {}
+  }, [logs]);
+
+  useEffect(() => {
+    try { localStorage.setItem(RT_KEYS.cargo, JSON.stringify(cargoAmounts)); } catch (e) {}
+  }, [cargoAmounts]);
+
+  useEffect(() => {
+    try { localStorage.setItem(RT_KEYS.counters, JSON.stringify(deliveryCounters)); } catch (e) {}
+  }, [deliveryCounters]);
+
+  // đảm bảo cargoAmounts có key cho tất cả vehicles (và xoá key xe đã remove)
+  useEffect(() => {
+    setCargoAmounts((prev) => {
+      const cur = prev && typeof prev === "object" ? { ...prev } : {};
+      const ids = new Set((vehicles || []).map((v) => v.id));
+      (vehicles || []).forEach((v) => {
+        if (!(v.id in cur)) cur[v.id] = "";
+      });
+      Object.keys(cur).forEach((k) => {
+        if (!ids.has(k)) delete cur[k];
+      });
+      return cur;
+    });
+  }, [vehicles]);
+
+  const getNextDeliveryIdGlobal = () => {
+    const counter = parseInt(localStorage.getItem("deliveryCounter") || "0", 10) + 1;
+    localStorage.setItem("deliveryCounter", String(counter));
+    return `DH${String(counter).padStart(4, "0")}`;
+  };
+
+  const csvToPos = (s) => {
+    if (!s) return null;
+    const parts = String(s).trim().split(",").map((x) => x.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const a = Number(parts[0]);
+      const b = Number(parts[1]);
+      if (Number.isFinite(a) && Number.isFinite(b)) return [a, b];
+    }
+    return null;
+  };
+
+  const saveTripLogToStorage = (vehicleId, startPos, endPos, cargo, path) => {
+    if (!vehicleId || !Array.isArray(path) || path.length < 2) return null;
+
+    // tránh ghi trùng khi xe đang ở trạng thái moving cùng 1 batch
+    if (activeTripRef.current?.[vehicleId]) return activeTripRef.current[vehicleId];
+
+    const deliveryId = getNextDeliveryIdGlobal();
+    const nowLabel = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+    const timeIso = new Date().toISOString();
+
+    const sp = Array.isArray(startPos) ? startPos : path[0];
+    const ep = Array.isArray(endPos) ? endPos : csvToPos(endPos) || null;
+
+    const entry = {
+      deliveryId,
+      vehicleId,
+      route: sp && ep ? `${sp[0]},${sp[1]} → ${ep[0]},${ep[1]}` : "—",
+      cargo: cargo || "Chưa nhập",
+      time: nowLabel,
+      timeIso,
+      path: path.map((p) => `${p[0]},${p[1]}`).join(" → "),
+      source: "realtime",
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem("tripLogs") || "[]");
+      localStorage.setItem("tripLogs", JSON.stringify([...existing, entry]));
+      activeTripRef.current[vehicleId] = deliveryId;
+    } catch (e) {
+      // ignore
+    }
+
+    return deliveryId;
+  };
+
   // ===== helpers =====
   const normalizePos = (p) => {
     if (!p) return null;
@@ -199,6 +444,7 @@ useEffect(() => {
                       x.id === waitVid ? { ...x, status: "moving", tripLog: w.path || [] } : x
                     )
                   );
+                  saveTripLogToStorage(waitVid, (w.path && w.path[0]) ? w.path[0] : null, (w.meta && w.meta.goalPos) ? csvToPos(w.meta.goalPos) : null, w.cargo, w.path);
                   sendPathToBackend(waitVid, w.path, w.cargo, w.meta);
                   if (startTimersRef.current[waitVid]) { clearTimeout(startTimersRef.current[waitVid]); delete startTimersRef.current[waitVid]; }
                   delete gate.waiting[waitVid];
@@ -239,6 +485,16 @@ useEffect(() => {
     const vehicleId = payload?.vehicleId || payload?.vehicle_id || payload?.id;
     if (!vehicleId) return;
 
+    // ✅ cập nhật Inventory (tồn kho + item theo kho)
+    try {
+      const meta = tripMetaRef.current?.[vehicleId];
+      if (meta?.destCsv) updateInventoryStorage(meta.destCsv, meta.cargoRaw);
+      delete tripMetaRef.current[vehicleId];
+    } catch (e) {}
+
+    // clear active trip marker
+    try { delete activeTripRef.current[vehicleId]; } catch(e) {}
+
     setVehicles((prev) =>
       prev.map((v) =>
         v.id === vehicleId ? { ...v, status: "idle", tripLog: [] } : v
@@ -250,6 +506,12 @@ useEffect(() => {
     const vehicleId = payload?.vehicleId || payload?.vehicle_id || payload?.id;
     const message = payload?.message;
     if (!vehicleId) return;
+
+    // clear trip meta
+    try { delete tripMetaRef.current[vehicleId]; } catch(e) {}
+
+    // clear active trip marker
+    try { delete activeTripRef.current[vehicleId]; } catch(e) {}
 
     setAlertMessage(`${vehicleId}: ${message || "Lỗi không rõ"}`);
     setTimeout(() => setAlertMessage(""), 4000);
@@ -276,6 +538,12 @@ useEffect(() => {
       setTimeout(() => setAlertMessage(""), 4000);
       return;
     }
+
+    // lưu meta để cập nhật Inventory khi nhận car:reached
+    try {
+      const goal = meta?.goalPos || (fullPath?.[fullPath.length - 1] ? toCsv(fullPath[fullPath.length - 1]) : null);
+      if (vehicleId) tripMetaRef.current[vehicleId] = { destCsv: goal, cargoRaw: cargo };
+    } catch (e) {}
     const formattedPath = fullPath.map(toCsv);
     const formattedStartPoint = toCsv(fullPath[0]);
   
@@ -316,6 +584,7 @@ useEffect(() => {
       setAlertMessage(`${vehicleId} đã gửi lộ trình thực tế`);
     } catch (err) {
       console.error("Lỗi gửi lệnh:", err);
+      try { delete activeTripRef.current[vehicleId]; } catch(e) {}
       addLog(vehicleId, cargo, false);
       setAlertMessage(`❌ Backend lỗi: ${err?.message || "unknown"}`);
     } finally {
@@ -363,6 +632,62 @@ useEffect(() => {
       delete next[vehicleId];
       return next;
     });
+  };
+
+  const handleResetApp = () => {
+    if (!confirm("Reset toàn bộ trạng thái về mặc định (2 xe V1, V2)?")) return;
+
+    // stop any delayed starts
+    try {
+      Object.keys(startTimersRef.current || {}).forEach((k) => {
+        try { clearTimeout(startTimersRef.current[k]); } catch (e) {}
+      });
+      startTimersRef.current = {};
+    } catch (e) {}
+
+    // reset run gate (real-world sync)
+    try {
+      runGateRef.current = {
+        running: false,
+        leadId: "V1",
+        progress: {},
+        lastPos: {},
+        waiting: {},
+        batchId: null,
+        batchVehicles: [],
+        done: {},
+      };
+    } catch (e) {}
+
+    // clear storage keys used by realtime UI
+    try { localStorage.removeItem(RT_KEYS.vehicles); } catch (e) {}
+    try { localStorage.removeItem(RT_KEYS.logs); } catch (e) {}
+    try { localStorage.removeItem(RT_KEYS.cargo); } catch (e) {}
+    try { localStorage.removeItem(RT_KEYS.counters); } catch (e) {}
+
+    // (optional) clear global counters/logs used by other pages
+    try { localStorage.removeItem("deliveryCounter"); } catch (e) {}
+    try { localStorage.removeItem("tripLogs"); } catch (e) {}
+
+    // reset in-memory state (không cần reload)
+    setVehicles(buildDefaultVehicles());
+    setCargoAmounts(buildDefaultCargo());
+    setLogs([]);
+    setDeliveryCounters({ V1: 0, V2: 0 });
+    setIsRunningTogether(false);
+    setAlertMessage("");
+    setBlink(false);
+
+    // clear active trips marker
+    try { activeTripRef.current = {}; } catch (e) {}
+
+    // reconnect socket (nếu backend/socket bị treo)
+    try {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current.connect();
+      }
+    } catch (e) {}
   };
 
   const handleStartTogetherSafeMulti = () => {
@@ -463,6 +788,7 @@ setIsRunningTogether(true);
         setVehicles((prev) =>
           prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
         );
+        saveTripLogToStorage(v.id, (fullPath && fullPath[0]) ? fullPath[0] : null, v.endPos, cargo, fullPath);
         sendPathToBackend(v.id, fullPath, cargo, metaPayload);
 
         return;
@@ -474,6 +800,7 @@ setIsRunningTogether(true);
         setVehicles((prev) =>
           prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
         );
+        saveTripLogToStorage(v.id, (fullPath && fullPath[0]) ? fullPath[0] : null, v.endPos, cargo, fullPath);
         sendPathToBackend(v.id, fullPath, cargo, metaPayload);
         return;
       }
@@ -503,6 +830,7 @@ setIsRunningTogether(true);
               x.id === v.id ? { ...x, status: "moving", tripLog: w.path || [] } : x
             )
           );
+          saveTripLogToStorage(v.id, (w.path && w.path[0]) ? w.path[0] : null, (w.meta && w.meta.goalPos) ? csvToPos(w.meta.goalPos) : null, w.cargo, w.path);
           sendPathToBackend(v.id, w.path, w.cargo, w.meta);
           delete gate.waiting[v.id];
         }, delayMs);
@@ -515,88 +843,120 @@ setIsRunningTogether(true);
   return (
     <div
       style={{
-        minHeight: "100vh",
+        padding: "30px 40px",
         background:
           "radial-gradient(circle at top, rgba(59,130,246,0.25), rgba(2,6,23,1) 60%)",
-        padding: 20,
-        paddingLeft: SIDEBAR_W + PAGE_GAP, // ✅ chừa chỗ cho sidebar fixed
+        minHeight: "100vh",
+        fontFamily: "Segoe UI, sans-serif",
         color: "#e2e8f0",
+        overflowX: "hidden",
         boxSizing: "border-box",
       }}
     >
-{/* HEADER – title bên trái, thời gian ở giữa (nhỏ vừa khung) */}
-<div
-  style={{
-    position: "relative",
-    marginBottom: 22,
-    padding: "12px 18px",
-    borderRadius: 16,
-    border: "1px solid rgba(148,163,184,0.12)",
-    background: "linear-gradient(180deg, rgba(15,23,42,0.65), rgba(2,6,23,0.55))",
-    backdropFilter: "blur(8px)",
-    height: 74, // ✅ thấp hơn để giống “khung xanh” ban đầu
-  }}
->
-  {/* LEFT: REALTIME + sub */}
-  <div
-    style={{
-      position: "absolute",
-      left: 18,
-      top: "50%",
-      transform: "translateY(-50%)",
-      textAlign: "left",
-      lineHeight: 1.1,
-    }}
-  >
-    <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 0.8 }}>
-      REALTIME
-    </div>
-    <div style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, opacity: 0.75 }}>
-      Điều khiển thực tế qua Backend
-    </div>
-  </div>
+      {/* HEADER – title bên trái, thời gian ở giữa */}
+      <div
+        style={{
+          position: "relative",
+          marginBottom: 22,
+          padding: "12px 18px",
+          borderRadius: 16,
+          border: "1px solid rgba(148,163,184,0.12)",
+          background: "linear-gradient(180deg, rgba(15,23,42,0.65), rgba(2,6,23,0.55))",
+          backdropFilter: "blur(8px)",
+          height: 74,
+        }}
+      >
+        {/* LEFT: title + sub */}
+        <div
+          style={{
+            position: "absolute",
+            left: 18,
+            top: "50%",
+            transform: "translateY(-50%)",
+            textAlign: "left",
+            lineHeight: 1.1,
+          }}
+        >
+        </div>
 
-  {/* CENTER: time + system (nhỏ vừa khung) */}
-  <div
-    style={{
-      position: "absolute",
-      left: "50%",
-      top: "50%",
-      transform: "translate(-50%, -50%)",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: 2,
-      pointerEvents: "none",
-      whiteSpace: "nowrap",
-    }}
-  >
-    <div style={{ fontSize: 22, fontWeight: 900, color: "#67e8f9", lineHeight: 1 }}>
-      <ClockDisplay />
-    </div>
-  </div>
-</div>
+        {/* CENTER: time */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 2,
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+        </div>
 
-      {/* Body: 2 cột giống Home */}
+        {/* TOP-LEFT: button chuyển trang */}
+        <div
+          style={{
+            position: "absolute",
+            left: 18,
+            top: 18,
+            right: "auto",
+            transform: "none",
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <button
+            onClick={() => navigate("/fleet-status")}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid rgba(96,165,250,0.45)",
+              background:
+                "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+              color: "#e2e8f0",
+              fontWeight: 900,
+              letterSpacing: "0.3px",
+              cursor: "pointer",
+              boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            📡 Fleet Status
+          </button>
+        </div>
+      </div>
+
       <div
         style={{
           display: "flex",
-          flexDirection: "row",
-          gap: 25,
-          alignItems: "flex-start",
+          gap: 30,
+          justifyContent: "center",
+          alignItems: "stretch",
+          flexWrap: "nowrap",
         }}
       >
-        {/* CỘT 1: MAP */}
+        {/* CỘT 1: BẢN ĐỒ */}
         <div
           style={{
             flex: "0 0 auto",
             display: "flex",
             flexDirection: "column",
-            alignItems: "center",
+            alignItems: "stretch",
+            justifyContent: "space-between",
+            height: "calc(100vh - 180px)",
+            minHeight: "720px",
+            maxHeight: "900px",
           }}
         >
-          <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
-          <div style={{ marginTop: 18 }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
+          </div>
+
+          <div style={{ paddingTop: 18, display: "flex", justifyContent: "center" }}>
             <PageSwitchButtons />
           </div>
         </div>
@@ -613,14 +973,8 @@ setIsRunningTogether(true);
           }}
         >
           {/* A. Bảng điều khiển */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              height: "100%",
-              width: "clamp(720px, 52vw, 980px)",
-            }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", width: "clamp(720px, 52vw, 980px)" }}>
+            {/* Button thêm xe */}
             <button
               onClick={handleAddVehicle}
               style={{
@@ -628,8 +982,7 @@ setIsRunningTogether(true);
                 padding: "12px 14px",
                 borderRadius: 14,
                 border: "1px solid rgba(96,165,250,0.45)",
-                background:
-                  "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
                 color: "#e2e8f0",
                 fontWeight: 900,
                 letterSpacing: "0.4px",
@@ -641,6 +994,7 @@ setIsRunningTogether(true);
               ➕ Thêm xe (tối đa 5)
             </button>
 
+            {/* Panels từng xe */}
             <div
               style={{
                 display: "grid",
@@ -648,6 +1002,8 @@ setIsRunningTogether(true);
                 gap: 16,
                 width: "100%",
                 alignItems: "stretch",
+                flex: 1,
+                minHeight: 0,
                 overflowY: "auto",
                 paddingRight: 8,
               }}
@@ -655,19 +1011,16 @@ setIsRunningTogether(true);
               {vehicles.map((v) => (
                 <div
                   key={v.id}
-                  style={{ background: "#fff", borderRadius: 14, padding: 14 }}
+                  style={{
+                    background: "linear-gradient(180deg, rgba(15,23,42,0.65), rgba(2,6,23,0.55))",
+                    borderRadius: 14,
+                    padding: 14,
+                    border: "1px solid rgba(148,163,184,0.14)",
+                    boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                  }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 8,
-                    }}
-                  >
-                    <div style={{ fontWeight: 900, color: "#0f172a" }}>
-                      {v.id}
-                    </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ fontWeight: 900, color: "#e2e8f0" }}>{v.id}</div>
 
                     <button
                       onClick={() => handleRemoveVehicle(v.id)}
@@ -677,18 +1030,10 @@ setIsRunningTogether(true);
                         borderRadius: 10,
                         border: "1px solid rgba(239,68,68,0.35)",
                         background:
-                          v.id === "V1" || v.id === "V2"
-                            ? "#e2e8f0"
-                            : "rgba(239,68,68,0.12)",
-                        color:
-                          v.id === "V1" || v.id === "V2"
-                            ? "#64748b"
-                            : "#b91c1c",
+                          v.id === "V1" || v.id === "V2" ? "rgba(148,163,184,0.18)" : "rgba(239,68,68,0.12)",
+                        color: v.id === "V1" || v.id === "V2" ? "rgba(226,232,240,0.55)" : "#fecaca",
                         fontWeight: 800,
-                        cursor:
-                          v.id === "V1" || v.id === "V2"
-                            ? "not-allowed"
-                            : "pointer",
+                        cursor: v.id === "V1" || v.id === "V2" ? "not-allowed" : "pointer",
                       }}
                     >
                       ✖ Xóa
@@ -710,7 +1055,7 @@ setIsRunningTogether(true);
                       let meta = result?.[v.id]?.meta || {};
                       const delayTicks = Number(result?.[v.id]?.delayTicks ?? 0);
                       const goalPos = v.endPos;
-                      const etaGoalTicks = fullPath ? (fullPath.length - 1 + delayTicks) : null;
+                      const etaGoalTicks = fullPath ? fullPath.length - 1 + delayTicks : null;
                       meta = {
                         ...meta,
                         batchId: Date.now(),
@@ -720,9 +1065,7 @@ setIsRunningTogether(true);
                       };
                       setVehicles((prev) =>
                         prev.map((x) =>
-                          x.id === v.id
-                            ? { ...x, status: "moving", tripLog: fullPath || [] }
-                            : x
+                          x.id === v.id ? { ...x, status: "moving", tripLog: fullPath || [] } : x
                         )
                       );
                       addPathLog(v.id, fullPath);
@@ -733,30 +1076,21 @@ setIsRunningTogether(true);
 
                   <div style={{ height: 10 }} />
 
-                  <div
-                    style={{
-                      fontWeight: 800,
-                      color: "#0f172a",
-                      marginBottom: 6,
-                    }}
-                  >
+                  <div style={{ fontWeight: 800, color: "#e2e8f0", marginBottom: 6 }}>
                     Nhập số hàng {v.id}...
                   </div>
 
                   <input
                     value={cargoAmounts[v.id] ?? ""}
-                    onChange={(e) =>
-                      setCargoAmounts((prev) => ({
-                        ...prev,
-                        [v.id]: e.target.value,
-                      }))
-                    }
+                    onChange={(e) => setCargoAmounts((prev) => ({ ...prev, [v.id]: e.target.value }))}
                     placeholder={`Nhập số hàng ${v.id}...`}
                     style={{
                       width: "100%",
                       padding: 10,
                       borderRadius: 8,
-                      border: "1px solid #cbd5e1",
+                      border: "1px solid rgba(148,163,184,0.18)",
+                      background: "rgba(2,6,23,0.35)",
+                      color: "#e2e8f0",
                       outline: "none",
                       fontSize: 14,
                       boxSizing: "border-box",
@@ -764,14 +1098,7 @@ setIsRunningTogether(true);
                     disabled={v.status === "moving"}
                   />
 
-                  <div
-                    style={{
-                      marginTop: 8,
-                      color: "#334155",
-                      fontSize: 12,
-                      lineHeight: 1.35,
-                    }}
-                  >
+                  <div style={{ marginTop: 8, color: "rgba(226,232,240,0.72)", fontSize: 12, lineHeight: 1.35 }}>
                     • Điểm về ưu tiên: 1.1 <br />
                     • Xe sau xuất phát theo delay (V2 sau V1, V3 sau V2...)
                   </div>
@@ -779,7 +1106,9 @@ setIsRunningTogether(true);
               ))}
             </div>
 
+            {/* Start Together */}
             <button
+              type="button"
               onClick={handleStartTogetherSafeMulti}
               disabled={isRunningTogether}
               style={{
@@ -787,10 +1116,8 @@ setIsRunningTogether(true);
                 width: "100%",
                 padding: "14px 16px",
                 borderRadius: 14,
-                border: "1px solid rgba(96,165,250,0.55)",
-                background: isRunningTogether
-                  ? "linear-gradient(135deg, rgba(148,163,184,0.35), rgba(148,163,184,0.25))"
-                  : "linear-gradient(135deg, rgba(37,99,235,0.85), rgba(14,165,233,0.65))",
+                border: "1px solid rgba(96,165,250,0.45)",
+                background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
                 color: "#e2e8f0",
                 fontWeight: 900,
                 letterSpacing: "0.4px",
@@ -798,7 +1125,7 @@ setIsRunningTogether(true);
                 boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
               }}
             >
-              {isRunningTogether ? "ĐANG CHẠY..." : "CHẠY CÙNG LÚC (V1 & V2, delay tuần tự)"}
+              {isRunningTogether ? "Đang chạy ..." : "Chạy cùng lúc (V1 & V2, delay tuần tự)"}
             </button>
 
             {alertMessage && (
@@ -806,10 +1133,49 @@ setIsRunningTogether(true);
                 <CollisionAlert message={alertMessage} />
               </div>
             )}
+
+            {/* Action Buttons */}
+            <div style={{ marginTop: 20, display: "flex", gap: 12, flexDirection: "column" }}>
+              <button
+                onClick={() => navigate("/warehouse")}
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(96,165,250,0.45)",
+                  background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                  color: "#e2e8f0",
+                  fontWeight: 800,
+                  letterSpacing: "0.4px",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                }}
+              >
+                📦 Qua trang Quản lý kho
+              </button>
+
+              <button
+                onClick={handleResetApp}
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(96,165,250,0.45)",
+                  background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+                  color: "#e2e8f0",
+                  fontWeight: 800,
+                  letterSpacing: "0.4px",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+                }}
+              >
+                🧹 Reset App
+              </button>
+            </div>
           </div>
 
           {/* B. Log */}
-          <div style={{ width: 430 }}>
+          <div style={{ flex: 1, minWidth: 520 }}>
             <DeliveryLog logs={logs} blink={blink} />
           </div>
         </div>

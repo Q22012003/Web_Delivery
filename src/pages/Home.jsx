@@ -1,16 +1,17 @@
 // src/pages/Home.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+
 import MapGrid from "../components/MapGrid";
 import ClockDisplay from "../components/ClockDisplay";
 import DeliveryLog from "../components/DeliveryLog";
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
-import { useNavigate } from "react-router-dom";
-
-import ControlPanel from "../components/ControlPanel"; // bạn đang có file này
+import ControlPanel from "../components/ControlPanel";
 import { aStarSearch } from "../utils/aStar";
 import { planMultiCarsRoute } from "../utils/routePlanner";
-
+const SIDEBAR_W = 280; // đúng bằng width sidebar
+const PAGE_GAP = 20;
 // ===== helpers =====
 const loadSavedState = (key, defaultValue) => {
   const saved = localStorage.getItem(key);
@@ -58,7 +59,9 @@ function makeVehicle(id, startPos, endPos) {
     deliveries: 0,
     tripLog: null,
     activeCargo: 0,
-    prevPos: null,
+    // IMPORTANT: prevPos dùng cho animation/hiển thị trong MapGrid.
+    // Nếu để null, khi bấm chạy có thể bị "nháy" (sáng lên rồi tắt) trước khi xe thực sự di chuyển.
+    prevPos: startPos,
   };
 }
 
@@ -67,6 +70,8 @@ export default function Home() {
 
   const [alertMessage, setAlertMessage] = useState("");
   const [isRunningTogether, setIsRunningTogether] = useState(false);
+
+  const lastCollisionRef = useRef({ fp: "", t: 0 });
 
   // ===== vehicles: mặc định 2 xe =====
   const [vehicles, setVehicles] = useState(() =>
@@ -101,6 +106,23 @@ export default function Home() {
       message = `[${now}] Xe ${id}: ${pathStr}`;
     }
     setLogs((prev) => [...prev, message]);
+  };
+
+  // ===== Persist alerts for Alert.jsx (legacy compatible) =====
+  const appendLegacyAlertLog = (entry) => {
+    try {
+      const raw = localStorage.getItem("alertLogs");
+      const arr = raw ? JSON.parse(raw) : [];
+      const list = Array.isArray(arr) ? arr : [];
+
+      // de-dup by alertId (if provided)
+      if (entry?.alertId && list.some((x) => x?.alertId === entry.alertId)) return;
+
+      const next = [...list, entry].slice(-300);
+      localStorage.setItem("alertLogs", JSON.stringify(next));
+    } catch {
+      // ignore
+    }
   };
 
   const getNextDeliveryId = () => {
@@ -186,6 +208,13 @@ export default function Home() {
 
   // ===== UPDATE endPos only (lock startPos) =====
   const updateVehicle = (vehicleId, field, value) => {
+    // Khi đang chạy chế độ nhiều xe thì khoá chỉnh route để tránh lệch state
+    if (isRunningTogether) return;
+
+    // Nếu xe không idle thì cũng khoá chỉnh (tránh đổi endPos trong lúc xe đang chạy/đợi)
+    const current = vehicles.find((v) => v.id === vehicleId);
+    if (current && current.status !== "idle") return;
+
     const f = String(field || "").toLowerCase();
     // 🔒 user chỉ thấy vị trí bắt đầu, không được chỉnh
     if (f === "startpos" || f.startsWith("start")) return;
@@ -194,6 +223,12 @@ export default function Home() {
 
   // ===== START SINGLE (A* riêng lẻ) =====
   const handleStartSingle = (vehicleId, delay = 0) => {
+    // Nếu đang chạy chế độ nhiều xe thì chặn start lẻ để tránh state bị chồng
+    if (isRunningTogether) {
+      alert("Đang chạy chế độ nhiều xe, vui lòng chờ tất cả xe dừng rồi hãy chạy lẻ.");
+      return;
+    }
+
     setTimeout(() => {
       const current = vehicles.find((v) => v.id === vehicleId);
       if (!current) return;
@@ -203,7 +238,8 @@ export default function Home() {
         alert(`⚠️ Vui lòng nhập số lượng hàng cho xe ${vehicleId} > 0`);
         return;
       }
-      if (current.status === "moving") return;
+      // Chỉ cho chạy khi xe đang idle (tránh double-start)
+      if (current.status !== "idle") return;
 
       // xác định điểm về: ưu tiên HOME (user = 1.1). Nếu HOME đang bị chiếm, xe sẽ về bến đỗ khác
       const others = vehicles.filter((v) => v.id !== vehicleId);
@@ -231,6 +267,8 @@ export default function Home() {
         ...prev,
         path: fullPath.slice(1),
         status: "moving",
+        // tránh nháy UI: coi như xe đang đứng yên tại pos hiện tại cho tới khi tick đầu tiên thực sự đổi ô
+        prevPos: prev.pos,
         deliveries: prev.deliveries + 1,
         tripLog: fullPath,
         activeCargo: amount,
@@ -256,8 +294,8 @@ export default function Home() {
               return;
             }
       
-            // 2) Nếu có bất kỳ xe nào đang chạy thì chặn
-            if (vehicles.some((v) => v.status === "moving")) {
+            // 2) Nếu có bất kỳ xe nào đang chạy/đợi thì chặn
+            if (vehicles.some((v) => v.status !== "idle")) {
               alert("Có xe đang chạy, vui lòng chờ.");
               return;
             }
@@ -281,7 +319,7 @@ export default function Home() {
             const result = planMultiCarsRoute({
               vehicles: planInput,
               baseDelayTicks: 4,
-              baseDelayMs: 3500,
+              baseDelayMs: 4000,
               maxCars: 5,
             });
       
@@ -292,28 +330,41 @@ export default function Home() {
       
             setIsRunningTogether(true);
 
-                // start theo delay
-      for (const v of selected) {
-      const amount = parseInt(cargoAmounts[v.id]);
-      const pack = result[v.id];
-      if (!pack || !pack.fullPath || pack.fullPath.length < 2) continue;
+// ===== START CÙNG LÚC - delay bằng WAIT STEPS theo delayTicks =====
+const ordered = [...selected].sort(
+  (a, b) => parseInt(a.id.slice(1), 10) - parseInt(b.id.slice(1), 10)
+);
 
-      const startFn = () => {
-        moveVehicleById(v.id, (prev) => ({
-          ...prev,
-          path: pack.fullPath.slice(1),
-          status: "moving",
-          deliveries: prev.deliveries + 1,
-          tripLog: pack.fullPath,
-          activeCargo: amount,
-        }));
-        saveTripLog(v.id, v.pos, v.endPos, amount, pack.fullPath);
-        addLog(v.id, (v.deliveries || 0) + 1, pack.fullPath);
-      };
+ordered.forEach((v) => {
+  const amount = parseInt(cargoAmounts[v.id]);
+  const pack = result[v.id];
+  if (!pack || !pack.fullPath || pack.fullPath.length < 2) return;
 
-      if (pack.delayMs > 0) setTimeout(startFn, pack.delayMs);
-      else startFn();
-            }
+  const delayTicks = pack.delayTicks || 0;
+  const startCell = pack.fullPath[0];
+
+  // WAIT = đứng yên tại startCell đúng số tick planner đã dùng để reserve
+  const waitSteps = Array.from({ length: delayTicks }, () => [...startCell]);
+
+  // vehicle.path là danh sách "nextPos" mỗi tick (có thể trùng để đứng yên)
+  const runPath = [...waitSteps, ...pack.fullPath.slice(1)];
+
+  moveVehicleById(v.id, (prev) => ({
+    ...prev,
+    path: runPath,
+    // Nếu có delayTicks thì coi là "đang đợi" để UI không nháy sáng rồi tắt.
+    // Khi tới tick đầu tiên mà xe thật sự đổi ô thì status sẽ tự chuyển sang "moving" trong vòng tick loop.
+    status: delayTicks > 0 ? "waiting" : "moving",
+    // tránh "nháy" icon: giữ prevPos = pos hiện tại ngay khi start (đặc biệt quan trọng khi delayTicks > 0)
+    prevPos: prev.pos,
+    deliveries: prev.deliveries + 1,
+    tripLog: runPath,         // log đúng timeline thực chạy
+    activeCargo: amount,
+  }));
+
+  saveTripLog(v.id, v.pos, v.endPos, amount, runPath);
+  addLog(v.id, (v.deliveries || 0) + 1, runPath);
+});
 
     // clear cargo (chỉ clear xe selected)
           // clear cargo (chỉ clear xe selected)
@@ -348,7 +399,13 @@ export default function Home() {
 
           const nextPath = vehicle.path.slice(1);
           const nextIsIdle = vehicle.path.length === 1;
-          const nextStatus = nextIsIdle ? "idle" : "moving";
+          const isWaitingStep = samePos(nextPos, vehicle.pos);
+
+          // Quy ước status:
+          // - idle    : không còn path
+          // - waiting : còn path nhưng tick này đứng yên (delay / WAIT step)
+          // - moving  : đang đổi ô
+          const nextStatus = nextIsIdle ? "idle" : isWaitingStep ? "waiting" : "moving";
 
           const updated = {
             ...vehicle,
@@ -370,7 +427,7 @@ export default function Home() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [vehicles]);
+  }, []);
 
   // ===== Simple collision warning (đa xe) =====
   useEffect(() => {
@@ -398,8 +455,50 @@ export default function Home() {
       }
     }
 
-    if (maxCommon > 2 && pair) setAlertMessage(`CẢNH BÁO: ${pair[0]} & ${pair[1]} trùng ${maxCommon - 2} bước!`);
-    else setAlertMessage("");
+    if (maxCommon > 2 && pair) {
+      const msg = `CẢNH BÁO: ${pair[0]} & ${pair[1]} trùng ${maxCommon - 2} bước!`;
+      setAlertMessage(msg);
+
+      // Lưu cảnh báo va chạm sang localStorage để trang Alert.jsx đọc được (ghi 1 lần theo fingerprint + cooldown)
+      const fp = `COLL|${pair[0]}|${pair[1]}|${maxCommon}`;
+      const nowMs = Date.now();
+      if (lastCollisionRef.current.fp !== fp || nowMs - lastCollisionRef.current.t > 15000) {
+        try {
+          const va = tripLogs.find((v) => v.id === pair[0]);
+          const vb = tripLogs.find((v) => v.id === pair[1]);
+          const aSet = new Set((va?.tripLog || []).map((p) => `${p[0]},${p[1]}`));
+          const overlapKeys = (vb?.tripLog || []).map((p) => `${p[0]},${p[1]}`).filter((k) => aSet.has(k));
+          const overlapText = overlapKeys
+            .slice(0, 12)
+            .map((k) => k.split(",").map((n) => Number(n)).join("."))
+            .join(" → ");
+
+          const timeText = new Date().toLocaleTimeString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+
+          appendLegacyAlertLog({
+            type: "Cảnh báo va chạm",
+            description: overlapText ? `${msg} | Trùng: ${overlapText}` : msg,
+            vehicleId: `${pair[0]},${pair[1]}`,
+            route:
+              (va?.endPos ? `${pair[0]}→${va.endPos[0]}.${va.endPos[1]}` : `${pair[0]}→-`) +
+              " | " +
+              (vb?.endPos ? `${pair[1]}→${vb.endPos[0]}.${vb.endPos[1]}` : `${pair[1]}→-`),
+            alertId: fp,
+            time: timeText,
+            createdAt: new Date().toISOString(),
+          });
+
+          lastCollisionRef.current = { fp, t: nowMs };
+        } catch {
+          // ignore
+        }
+      }
+    } else setAlertMessage("");
   }, [vehicles]);
 
   useEffect(() => {
@@ -439,8 +538,8 @@ export default function Home() {
     const v = vehicles.find((x) => x.id === vehicleId);
     if (!v) return;
   
-    if (v.status === "moving") {
-      alert(`Xe ${vehicleId} đang chạy, không thể xóa.`);
+    if (v.status !== "idle") {
+      alert(`Xe ${vehicleId} đang chạy/đợi, không thể xóa.`);
       return;
     }
   
@@ -501,10 +600,8 @@ export default function Home() {
     }}
   >
     <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.8 }}>
-      HOME
     </div>
     <div style={{ marginTop: 4, fontSize: 11.5, fontWeight: 600, opacity: 0.75 }}>
-      Điều khiển thực tế qua Backend
     </div>
   </div>
 
@@ -523,10 +620,40 @@ export default function Home() {
       whiteSpace: "nowrap",
     }}
   >
-    <div style={{ fontSize: 22, fontWeight: 900, color: "#67e8f9", lineHeight: 1 }}>
-      <ClockDisplay />
-    </div>
   </div>
+  {/* TOP-LEFT: button chuyển trang */}
+<div
+  style={{
+    position: "absolute",
+    left: 18,
+    top: 18,
+    right: "auto",
+    transform: "none",
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+  }}
+>
+  <button
+    onClick={() => navigate("/fleet-status")}
+    style={{
+      padding: "10px 12px",
+      borderRadius: 12,
+      border: "1px solid rgba(96,165,250,0.45)",
+      background:
+        "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
+      color: "#e2e8f0",
+      fontWeight: 900,
+      letterSpacing: "0.3px",
+      cursor: "pointer",
+      boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
+      whiteSpace: "nowrap",
+    }}
+  >
+    📡 Fleet Status
+  </button>
+</div>
+
 </div>
 
       <div
@@ -535,13 +662,17 @@ export default function Home() {
           gap: 30,
           justifyContent: "center",
           alignItems: "stretch",
-          flexWrap: "wrap",
+          flexWrap: "nowrap",
         }}
       >
         {/* CỘT 1: BẢN ĐỒ */}
-        <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
-          <div style={{ marginTop: 18 }}>
+        <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", height: "calc(100vh - 180px)", minHeight: "720px", maxHeight: "900px" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+
+            <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
+
+          </div>
+          <div style={{ paddingTop: 18, display: "flex", justifyContent: "center" }}>
             <PageSwitchButtons />
           </div>
         </div>
@@ -587,14 +718,16 @@ export default function Home() {
     gap: 16,
     width: "100%",
     alignItems: "stretch",
+    flex: 1,
+    minHeight: 0,
     overflowY: "auto",
     paddingRight: 8,
   }}
 >
 {vehicles.map((v) => (
- <div key={v.id} style={{ background: "#fff", borderRadius: 14, padding: 14 }}>
+ <div key={v.id} style={{ background: "linear-gradient(180deg, rgba(15,23,42,0.65), rgba(2,6,23,0.55))", borderRadius: 14, padding: 14, border: "1px solid rgba(148,163,184,0.14)", boxShadow: "0 10px 22px rgba(2,6,23,0.35)" }}>
  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-   <div style={{ fontWeight: 900, color: "#0f172a" }}>{v.id}</div>
+   <div style={{ fontWeight: 900, color: "#e2e8f0" }}>{v.id}</div>
 
    <button
      onClick={() => handleRemoveVehicle(v.id)}
@@ -603,8 +736,8 @@ export default function Home() {
        padding: "6px 10px",
        borderRadius: 10,
        border: "1px solid rgba(239,68,68,0.35)",
-       background: v.id === "V1" || v.id === "V2" ? "#e2e8f0" : "rgba(239,68,68,0.12)",
-       color: v.id === "V1" || v.id === "V2" ? "#64748b" : "#b91c1c",
+       background: v.id === "V1" || v.id === "V2" ? "rgba(148,163,184,0.18)" : "rgba(239,68,68,0.12)",
+       color: v.id === "V1" || v.id === "V2" ? "rgba(226,232,240,0.55)" : "#fecaca",
        fontWeight: 800,
        cursor: v.id === "V1" || v.id === "V2" ? "not-allowed" : "pointer",
      }}
@@ -623,7 +756,7 @@ export default function Home() {
     <div style={{ height: 10 }} />
 
     {/* --- Cargo --- */}
-    <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: 6 }}>
+    <div style={{ fontWeight: 800, color: "#e2e8f0", marginBottom: 6 }}>
       Nhập số hàng {v.id}...
     </div>
 
@@ -635,15 +768,17 @@ export default function Home() {
         width: "100%",
         padding: 10,
         borderRadius: 8,
-        border: "1px solid #cbd5e1",
+        border: "1px solid rgba(148,163,184,0.18)",
+        background: "rgba(2,6,23,0.35)",
+        color: "#e2e8f0",
         outline: "none",
         fontSize: 14,
         boxSizing: "border-box",
       }}
-      disabled={v.status === "moving"}
+      disabled={v.status !== "idle"}
     />
 
-    <div style={{ marginTop: 8, color: "#334155", fontSize: 12, lineHeight: 1.35 }}>
+    <div style={{ marginTop: 8, color: "rgba(226,232,240,0.72)", fontSize: 12, lineHeight: 1.35 }}>
       • Điểm về ưu tiên: 1.1 <br />
       • Xe sau xuất phát theo delay (V2 sau V1, V3 sau V2...)
     </div>
