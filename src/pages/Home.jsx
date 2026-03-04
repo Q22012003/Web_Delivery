@@ -48,6 +48,40 @@ const PARKING_SPOTS = [
 const samePos = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
 const posKey = (p) => `${p[0]},${p[1]}`;
 
+const parsePos = (v) => {
+  if (v == null) return null;
+
+  // ✅ handle numeric shorthand like 5.1 (Number)
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const r = Math.floor(v);
+    const c = Math.round((v - r) * 10);
+    if (Number.isFinite(r) && Number.isFinite(c)) return [r, c];
+    return null;
+  }
+
+  // already array-like
+  if (Array.isArray(v) && v.length === 2) {
+    const r = Number(v[0]);
+    const c = Number(v[1]);
+    return Number.isFinite(r) && Number.isFinite(c) ? [r, c] : null;
+  }
+  // string forms: "5.3", "5,3", "5 3", "5-3"
+  if (typeof v === "string") {
+    const m = v.trim().match(/(\d+)\D+(\d+)/);
+    if (!m) return null;
+    const r = Number(m[1]);
+    const c = Number(m[2]);
+    return Number.isFinite(r) && Number.isFinite(c) ? [r, c] : null;
+  }
+  // object forms: {r,c} {row,col}
+  if (typeof v === "object") {
+    const r = Number(v.r ?? v.row);
+    const c = Number(v.c ?? v.col);
+    return Number.isFinite(r) && Number.isFinite(c) ? [r, c] : null;
+  }
+  return null;
+};
+
 function makeVehicle(id, startPos, endPos) {
   return {
     id,
@@ -58,7 +92,13 @@ function makeVehicle(id, startPos, endPos) {
     status: "idle",
     deliveries: 0,
     tripLog: null,
+    routeOverlay: null, // full planned route for MapGrid overlay
     activeCargo: 0,
+    stepIndex: 0,
+    // nơi xe sẽ quay về sau khi giao (HOME hoặc bến đỗ được planner gán)
+    returnTarget: null,
+    // đã giao hàng (dùng để tránh trigger giao nhiều lần khi chờ ở kho)
+    delivered: false,
     // IMPORTANT: prevPos dùng cho animation/hiển thị trong MapGrid.
     // Nếu để null, khi bấm chạy có thể bị "nháy" (sáng lên rồi tắt) trước khi xe thực sự di chuyển.
     prevPos: startPos,
@@ -194,17 +234,31 @@ export default function Home() {
         alert("⚠️ Tối đa 5 xe trên ma trận!");
         return prev;
       }
-      const nextIndex = prev.length; // 0-based
-      const newId = `V${nextIndex + 1}`;
-      const startPos = START_SPOTS[nextIndex]; // V3 at 1.3, V4 at 1.4, V5 at 1.5
-      const defaultEnd = [5, Math.min(5, nextIndex + 1)]; // gợi ý 5.3/5.4/5.5...
+
+      // ✅ Chọn ID nhỏ nhất còn thiếu để tránh trùng (vd: xóa V3 rồi thêm lại)
+      const used = new Set(prev.map((v) => String(v.id || '').toUpperCase()));
+      let nextN = null;
+      for (let n = 1; n <= 5; n++) {
+        if (!used.has(`V${n}`)) {
+          nextN = n;
+          break;
+        }
+      }
+      if (!nextN) return prev;
+
+      const newId = `V${nextN}`;
+      const startPos = START_SPOTS[nextN - 1];
+      const defaultEnd = [5, Math.min(5, Math.max(1, nextN))]; // V3->5.3, V4->5.4, V5->5.5
+
       const next = [...prev, makeVehicle(newId, startPos, defaultEnd)];
+
       // init cargo key
       setCargoAmounts((c) => ({ ...c, [newId]: "" }));
       addLog("System", 0, `➕ Đã thêm xe ${newId} tại ${startPos[0]}.${startPos[1]}`);
       return next;
     });
   };
+
 
   // ===== UPDATE endPos only (lock startPos) =====
   const updateVehicle = (vehicleId, field, value) => {
@@ -218,7 +272,9 @@ export default function Home() {
     const f = String(field || "").toLowerCase();
     // 🔒 user chỉ thấy vị trí bắt đầu, không được chỉnh
     if (f === "startpos" || f.startsWith("start")) return;
-    moveVehicleById(vehicleId, (v) => ({ ...v, [field]: value }));
+    const normalizedValue =
+  f === "endpos" || f.startsWith("end") ? parsePos(value) ?? value : value;
+moveVehicleById(vehicleId, (v) => ({ ...v, [field]: normalizedValue }));
   };
 
   // ===== START SINGLE (A* riêng lẻ) =====
@@ -256,8 +312,15 @@ export default function Home() {
         );
       }
 
+      const start = parsePos(current.pos) || current.pos;
+      const goal = parsePos(current.endPos);
+      if (!goal) {
+        alert(`⚠️ ${vehicleId}: Điểm đến (endPos) không hợp lệ.`);
+        return;
+      }
+
       // A* đi giao xong quay về điểm ưu tiên (HOME hoặc bến đỗ thay thế)
-      const fullPath = aStarSearch(current.pos, current.endPos, true, returnSpot);
+      const fullPath = aStarSearch(start, goal, true, returnSpot);
       if (!fullPath || fullPath.length < 2) {
         alert(`Xe ${vehicleId}: Không tìm thấy đường!`);
         return;
@@ -271,7 +334,11 @@ export default function Home() {
         prevPos: prev.pos,
         deliveries: prev.deliveries + 1,
         tripLog: fullPath,
+        routeOverlay: fullPath,
+        stepIndex: 0,
         activeCargo: amount,
+        returnTarget: returnSpot,
+        delivered: false,
       }));
 
       saveTripLog(vehicleId, current.pos, current.endPos, amount, fullPath);
@@ -285,9 +352,14 @@ export default function Home() {
   const handleStartTogetherSafeMulti = () => {
         try {
             // 1) Chỉ chọn xe đã có endPos (được cấu hình điểm đến)
-            const selected = vehicles.filter(
-              (v) => Array.isArray(v.endPos) && v.endPos.length === 2
-            );
+            const selected = vehicles
+  .map((v) => ({
+    ...v,
+    pos: parsePos(v.pos) || v.pos,
+    startPos: parsePos(v.startPos) || v.startPos,
+    endPos: parsePos(v.endPos),
+  }))
+  .filter((v) => Array.isArray(v.endPos) && v.endPos.length === 2);
       
             if (selected.length === 0) {
               alert("⚠️ Chưa chọn điểm đến cho xe nào (endPos).");
@@ -328,6 +400,24 @@ export default function Home() {
               return;
             }
       
+
+            // 4) Validate planner trả đủ route cho tất cả xe selected (tránh “mất route” ngẫu nhiên)
+            const missingIds = selected
+              .filter(
+                (v) =>
+                  !result?.[v.id] ||
+                  !Array.isArray(result[v.id]?.fullPath) ||
+                  result[v.id].fullPath.length < 2
+              )
+              .map((v) => v.id);
+
+            if (missingIds.length > 0) {
+              const msg = `❌ Planner thiếu lộ trình cho: ${missingIds.join(", ")}. Vui lòng thử lại (Reset/plan lại).`;
+              alert(msg);
+              addLog("System", 0, msg);
+              return;
+            }
+
             setIsRunningTogether(true);
 
 // ===== START CÙNG LÚC - delay bằng WAIT STEPS theo delayTicks =====
@@ -358,8 +448,12 @@ ordered.forEach((v) => {
     // tránh "nháy" icon: giữ prevPos = pos hiện tại ngay khi start (đặc biệt quan trọng khi delayTicks > 0)
     prevPos: prev.pos,
     deliveries: prev.deliveries + 1,
-    tripLog: runPath,         // log đúng timeline thực chạy
+    tripLog: [prev.pos, ...runPath], // log đúng timeline thực chạy
+    routeOverlay: pack.fullPath, // stable full route (go + return) for MapGrid
+    stepIndex: 0,
     activeCargo: amount,
+    returnTarget: pack.returnTarget || pack.fullPath[pack.fullPath.length - 1],
+    delivered: false,
   }));
 
   saveTripLog(v.id, v.pos, v.endPos, amount, runPath);
@@ -397,31 +491,76 @@ ordered.forEach((v) => {
             currentCargo = 0;
           }
 
-          const nextPath = vehicle.path.slice(1);
-          const nextIsIdle = vehicle.path.length === 1;
-          const isWaitingStep = samePos(nextPos, vehicle.pos);
+          let nextPath = vehicle.path.slice(1);
+let nextTripLog = vehicle.tripLog;
 
-          // Quy ước status:
-          // - idle    : không còn path
-          // - waiting : còn path nhưng tick này đứng yên (delay / WAIT step)
-          // - moving  : đang đổi ô
-          const nextStatus = nextIsIdle ? "idle" : isWaitingStep ? "waiting" : "moving";
+const returnTarget =
+  Array.isArray(vehicle.returnTarget) && vehicle.returnTarget.length === 2
+    ? vehicle.returnTarget
+    : null;
 
-          const updated = {
-            ...vehicle,
-            prevPos: vehicle.pos,
-            pos: nextPos,
-            path: nextPath,
-            status: nextStatus,
-            activeCargo: currentCargo,
-          };
+const isDeliveryStep = samePos(nextPos, vehicle.endPos);
 
-          // ✅ Khi xe dừng (kết thúc chuyến), cập nhật vị trí xuất phát mới để ControlPanel hiển thị đúng
-          if (nextIsIdle) {
-            updated.startPos = nextPos;
-          }
+// ✅ AUTO-FIX: nếu planner/logic chỉ tạo "chặng đi" (đến kho) rồi path rỗng,
+// thì ngay lúc đặt chân vào kho sẽ nối thêm đường quay về để UI không bị "tắt lộ trình".
+if (
+  nextPath.length === 0 &&
+  isDeliveryStep &&
+  returnTarget &&
+  !samePos(returnTarget, vehicle.endPos)
+) {
+  const ret = aStarSearch(nextPos, returnTarget, false);
+  if (Array.isArray(ret) && ret.length >= 2) {
+    nextPath = ret.slice(1);
 
-          return updated;
+    // nối thêm vào tripLog để MapGrid (nếu dùng tripLog) vẫn đúng timeline
+    if (Array.isArray(nextTripLog) && nextTripLog.length > 0) {
+      nextTripLog = [...nextTripLog, ...ret.slice(1)];
+    } else {
+      nextTripLog = [vehicle.pos, nextPos, ...ret.slice(1)];
+    }
+  }
+}
+
+const nextIsIdle = nextPath.length === 0;
+const isWaitingStep = samePos(nextPos, vehicle.pos);
+
+// Quy ước status:
+// - idle    : không còn path
+// - waiting : còn path nhưng tick này đứng yên (delay / WAIT step)
+// - moving  : đang đổi ô
+const nextStatus = nextIsIdle
+  ? "idle"
+  : isWaitingStep
+  ? "waiting"
+  : "moving";
+
+const updated = {
+  ...vehicle,
+  prevPos: vehicle.pos,
+  pos: nextPos,
+  path: nextPath,
+  status: nextStatus,
+  activeCargo: currentCargo,
+  tripLog: nextTripLog,
+  // ✅ Cursor để MapGrid biết đã đi tới đâu trong tripLog
+  stepIndex: (vehicle.stepIndex ?? 0) + 1,
+  // đánh dấu đã giao hàng (để debug nếu cần)
+  delivered: vehicle.delivered || (isDeliveryStep && vehicle.activeCargo > 0),
+};
+
+// ✅ CHỈ kết thúc chuyến khi đã về đúng returnTarget (HOME/bến đỗ).
+// (Không kết thúc ở kho giao hàng)
+const finished =
+  nextIsIdle && (!returnTarget || samePos(nextPos, returnTarget));
+
+if (finished) {
+  // Kết thúc chuyến khi đã về bến: giữ lại tripLog để UI luôn thấy "hành trình" (không bị tắt ở điểm giao).
+  updated.startPos = nextPos;
+  // Không reset tripLog/stepIndex để đường đi không biến mất.
+  updated.returnTarget = null;
+  updated.delivered = false;
+}return updated;
         })
       );
     }, 1000);
@@ -508,6 +647,35 @@ ordered.forEach((v) => {
     }
   }, [vehicles, isRunningTogether]);
 
+  // ===== AUTO RESET ROUTE OVERLAY =====
+  // Khi TẤT CẢ xe đã về bến (idle + returnTarget=null + pos==startPos) thì xoá tripLog
+  // để lần chạy tiếp theo sẽ hiện hành trình mới.
+  useEffect(() => {
+    const anyRoute = vehicles.some(
+      (v) =>
+        (Array.isArray(v?.routeOverlay) && v.routeOverlay.length > 1) ||
+        (Array.isArray(v?.tripLog) && v.tripLog.length > 1)
+    );
+    if (!anyRoute) return;
+
+    const allReturned = vehicles.every((v) => {
+      const atBase = Array.isArray(v?.startPos) ? samePos(v.pos, v.startPos) : true;
+      const done = v.status === "idle" && (v.returnTarget == null);
+      return atBase && done;
+    });
+
+    if (allReturned) {
+      setVehicles((prev) =>
+        prev.map((v) => ({
+          ...v,
+          tripLog: null,
+          routeOverlay: null,
+          stepIndex: 0,
+        }))
+      );
+    }
+  }, [vehicles]);
+
   const handleResetApp = () => {
     if (!confirm("Reset toàn bộ trạng thái về mặc định (2 xe V1, V2)?")) return;
   
@@ -561,6 +729,25 @@ ordered.forEach((v) => {
   // ===== Map props: giữ v1/v2 để tương thích MapGrid cũ =====
   const v1 = vehicles.find((v) => v.id === "V1");
   const v2 = vehicles.find((v) => v.id === "V2");
+
+  // Hiện route khi:
+// - StartTogether (multi) đang chạy, HOẶC
+// - Bất kỳ xe nào đang có path/tripLog (kể cả A* đơn), HOẶC
+// - status đang moving/waiting
+// Hiện route khi:
+// - StartTogether (multi) đang chạy, HOẶC
+// - Bất kỳ xe nào đang có path (kể cả A* đơn), HOẶC
+// - status đang moving/waiting
+const showRoutes =
+  isRunningTogether ||
+  vehicles.some(
+    (v) =>
+      (Array.isArray(v?.path) && v.path.length > 0) ||
+      (Array.isArray(v?.routeOverlay) && v.routeOverlay.length > 1) ||
+      (Array.isArray(v?.tripLog) && v.tripLog.length > 1) ||
+      v.status === "moving" ||
+      v.status === "waiting"
+  );
 
   return (
     <div
@@ -669,7 +856,7 @@ ordered.forEach((v) => {
         <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", height: "calc(100vh - 180px)", minHeight: "720px", maxHeight: "900px" }}>
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
 
-            <MapGrid v1={v1} v2={v2} vehicles={vehicles} />
+            <MapGrid v1={v1} v2={v2} vehicles={vehicles} showRoutes={showRoutes} />
 
           </div>
           <div style={{ paddingTop: 18, display: "flex", justifyContent: "center" }}>

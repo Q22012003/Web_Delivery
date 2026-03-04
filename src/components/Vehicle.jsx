@@ -1,6 +1,16 @@
 // src/components/Vehicle.jsx
 import CarIcon from "./CarIcon";
 
+const VEHICLE_COLORS = {
+  V1: "#ff4d4d",
+  V2: "#22c55e",
+  V3: "#f59e0b",
+  V4: "#a78bfa",
+  V5: "#06b6d4",
+};
+
+const normalizeId = (id) => String(id || "").trim().toUpperCase();
+
 export default function Vehicle({ id, pos,prevPos, status, index = 0 }) {
   if (!pos) return null;
   const [row, col] = pos;
@@ -15,7 +25,7 @@ export default function Vehicle({ id, pos,prevPos, status, index = 0 }) {
 
 
   // Màu cơ bản của xe
-  const baseColor = isV1 ? "#ff4444" : "#00C853";
+  const baseColor = VEHICLE_COLORS[normalizeId(id)] || "#22c55e";
 
   // Màu xe + nhãn: bật đèn → màu sáng, tắt đèn → xám
   const carColor = lightsOn ? baseColor : "#666666";
