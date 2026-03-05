@@ -81,6 +81,13 @@ const publishToCar = (topic, payloadObj) => {
   connection.publish(topic, payload, mqtt.QoS.AtLeastOnce);
 };
 
+// Expose a safe helper for REST/socket layer to send a direct command to a specific car
+const sendCommandToCar = (vehicleId, payloadObj) => {
+  const topic = TOPICS?.[vehicleId]?.pubCmd;
+  if (!topic) throw new Error(`Unknown vehicleId: ${vehicleId}`);
+  publishToCar(topic, payloadObj);
+};
+
 // ====== heading/direction ======
 const getDirection = (session, currentStr, targetStr) => {
   const [r1, c1] = String(currentStr).split(",").map(Number);
@@ -220,15 +227,9 @@ const checkBlocked = (vehicleId, fromPos, toPos) => {
   const self = sessions[vehicleId];
   const selfBatch = getBatchId(self);
 
-  // 1) Node occupied (source-of-truth = occupancy từ ACK/override), không phụ thuộc isNavigating
-  if (occupancy[toPos] && occupancy[toPos] !== vehicleId) {
-    return {
-      blocked: true,
-      kind: "node",
-      blockerId: occupancy[toPos],
-      reason: `node occupied by ${occupancy[toPos]} (to=${toPos})`,
-    };
-  }
+  // 1) Node occupied (source-of-truth = occupancy từ ACK/override)
+  // IMPORTANT: không return sớm ở đây, vì nếu là tình huống "swap head-on" thì cần nhận diện để phá deadlock.
+  const occ = occupancy[toPos] && occupancy[toPos] !== vehicleId ? occupancy[toPos] : null;
 
   for (const otherId of getOtherIds(vehicleId)) {
     const other = sessions[otherId];
@@ -241,15 +242,19 @@ const checkBlocked = (vehicleId, fromPos, toPos) => {
     if (batchMismatch) continue;
 
     const otherPos = other.lastPosition;
+
+    // Intent "mềm" (khi xe đang HOLD/gated thì getIntentTarget sẽ trả null để không reserve node kế tiếp)
     const otherIntent = getIntentTarget(otherId);
 
+    // Next "cứng" để phát hiện swap ngay cả khi xe kia đang HOLD (waiting=true).
+    // - gated => chưa được phép chạy => không tính next
+    // - waiting => vẫn có thể đang "muốn" đi tới pathQueue[0] sau khi HOLD_DONE
+    const otherNext = other?.gated
+      ? null
+      : (other.currentTarget || (other.pathQueue && other.pathQueue.length > 0 ? String(other.pathQueue[0]) : null));
+
     // 2) SWAP head-on
-    if (
-      otherPos &&
-      String(otherPos) === String(toPos) &&
-      otherIntent &&
-      String(otherIntent) === String(fromPos)
-    ) {
+    if (otherPos && String(otherPos) === String(toPos) && otherNext && String(otherNext) === String(fromPos)) {
       return {
         blocked: true,
         kind: "swap",
@@ -267,6 +272,16 @@ const checkBlocked = (vehicleId, fromPos, toPos) => {
         reason: `reserved by ${otherId} -> ${otherIntent} (to=${toPos})`,
       };
     }
+  }
+
+  // 4) Nếu không phải swap/reserve nhưng node đang bị chiếm -> block node
+  if (occ) {
+    return {
+      blocked: true,
+      kind: "node",
+      blockerId: occ,
+      reason: `node occupied by ${occ} (to=${toPos})`,
+    };
   }
 
   return { blocked: false, kind: "", blockerId: null, reason: "" };
@@ -413,17 +428,60 @@ const sendNextPosition = (vehicleId) => {
   if (!s.pathQueue || s.pathQueue.length === 0) {
     s.isNavigating = false;
     s.currentTarget = null;
-    console.log(`=== [DONE ${vehicleId}] ĐÃ ĐẾN ĐÍCH CUỐI CÙNG ===`);
-    publishToCar(TOPICS[vehicleId].pubCmd, { type: "STOP", message: "Finished" });
+
+    // Nếu fullPath có đoạn RETURN (finalPos != goalPos) thì dùng FINISH để MCU về LED ĐỎ.
+    const goalStr = s.goalPos != null ? String(s.goalPos) : null;
+    const finalStr = s.finalPos != null ? String(s.finalPos) : (s.lastPosition != null ? String(s.lastPosition) : null);
+    const shouldFinish = goalStr && finalStr && String(finalStr) !== String(goalStr);
+
+    console.log(`=== [DONE ${vehicleId}] ${shouldFinish ? "RETURNED -> FINISH" : "STOP"} (pos=${s.lastPosition || "?"}) ===`);
+
+    // tránh publish lặp nếu sendNextPosition bị gọi lại nhiều lần
+    if (!s.finishedNotified) {
+      s.finishedNotified = true;
+      if (shouldFinish) {
+        publishToCar(TOPICS[vehicleId].pubCmd, { type: "FINISH" });
+      } else {
+        publishToCar(TOPICS[vehicleId].pubCmd, { type: "STOP", message: "Finished" });
+      }
+    }
+
+    // Thông báo UI: terminal status (RealTime.jsx bắt DONE/IDLE để set idle)
+    try {
+      if (s.lastPosition) {
+        const [rr, cc] = String(s.lastPosition).split(",").map(Number);
+        if (Number.isFinite(rr) && Number.isFinite(cc)) {
+          emitToFrontend("car:position", { vehicleId, position: [rr, cc], status: "DONE" });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
     return;
   }
 
   const nextTarget = String(s.pathQueue[0]);
 
-  // pop WAIT duplicate
+  // ===== PLANNED WAIT (duplicate node in path) =====
+  // Planner (Home.jsx) biểu diễn WAIT bằng cách lặp lại cùng 1 node nhiều tick.
+  // Trước đây backend "pop" các node trùng -> vô tình xoá WAIT, khiến xe đi sớm hơn plan
+  // và dễ tạo deadlock (ví dụ V2 vào 3,1 sớm thay vì chờ ở 3,2).
+  //
+  // Fix: nếu nextTarget == lastPosition => coi là WAIT tick(s) và gửi HOLD tương ứng.
   if (s.lastPosition && nextTarget === s.lastPosition) {
-    s.pathQueue.shift();
-    return setTimeout(() => sendNextPosition(vehicleId), 0);
+    let nWait = 0;
+    const cur = String(s.lastPosition);
+    while (s.pathQueue.length > 0 && String(s.pathQueue[0]) === cur) {
+      s.pathQueue.shift();
+      nWait += 1;
+    }
+
+    // Hold theo số tick WAIT. Dùng computeHoldMs() để đồng bộ với nhịp di chuyển 1 ô.
+    const msPerTick = computeHoldMs();
+    const holdMs = Math.max(MIN_HOLD_MS, msPerTick * Math.max(1, nWait));
+    sendHold(vehicleId, holdMs, `planned WAIT x${nWait}`);
+    return;
   }
 
   const block = checkBlocked(vehicleId, s.lastPosition, nextTarget);
@@ -466,9 +524,21 @@ const startNavigationSequence = (vehicleId, rawPath, startPoint, meta = {}) => {
   s.meta = meta || null;
   s.prevPosition = null;
 
+  // ===== Mission markers for LED/state (DELIVERED/FINISH) =====
+  s.goalReached = false;
+  s.deliveredNotified = false;
+  s.finishedNotified = false;
+
+  // normalize goalPos to "r,c" string if provided
+  if (s.goalPos != null) s.goalPos = String(s.goalPos).replace(/\./g, ",");
+
+
   let cleanPath = Array.isArray(rawPath) ? [...rawPath] : [];
   if (cleanPath.length > 0 && String(cleanPath[0]) === String(startPoint)) cleanPath.shift();
   if (cleanPath.length === 0) return;
+
+  // finalPos = điểm cuối của fullPath (thường là bến/returnTarget)
+  s.finalPos = cleanPath.length ? String(cleanPath[cleanPath.length - 1]) : null;
 
   clearVehicleOccupancy(vehicleId);
   occupancy[String(startPoint)] = vehicleId;
@@ -595,9 +665,30 @@ const setupConnectionEvents = async () => {
       if (ok && s.currentTarget && String(rawPos) === String(s.currentTarget)) {
         console.log(`✓ [ACK ${vehicleId}] Đã đến ${rawPos}. Pop + đi tiếp...`);
 
-        while (s.pathQueue.length > 0 && String(s.pathQueue[0]) === String(rawPos)) {
+        // IMPORTANT:
+        // - Chỉ pop đúng 1 node vừa ACK tới.
+        // - KHÔNG pop hết các node trùng nhau vì planner dùng "node lặp" để biểu diễn WAIT ticks.
+        if (s.pathQueue.length > 0 && String(s.pathQueue[0]) === String(rawPos)) {
           s.pathQueue.shift();
         }
+
+        // ===== GOAL reached: notify once (for LED GREEN + inventory/log) =====
+        try {
+          const goalStr = s.goalPos != null ? String(s.goalPos) : null;
+          if (goalStr && !s.goalReached && String(rawPos) === String(goalStr) && statusUpper === "OK") {
+            s.goalReached = true;
+            console.log(`=== [DELIVERED ${vehicleId}] reached goal ${goalStr} ===`);
+
+            // Tell MCU to turn LED GREEN (hasDelivered = true)
+            publishToCar(TOPICS[vehicleId].pubCmd, { type: "DELIVERED" });
+
+            // Notify frontend: RealTime.jsx listens "car:reached" for inventory update
+            emitToFrontend("car:reached", { vehicleId, position: [row, col], status: "DELIVERED", goalPos: goalStr });
+          }
+        } catch (e) {
+          console.log("[DELIVERED] error:", e?.message || e);
+        }
+
 
         s.currentTarget = null;
         recomputePriorityRanks();
@@ -664,4 +755,4 @@ const connectToAwsIot = async () => {
   }
 };
 
-module.exports = { connectToAwsIot, startNavigationSequence };
+module.exports = { connectToAwsIot, startNavigationSequence, sendCommandToCar };

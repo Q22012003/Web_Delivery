@@ -33,11 +33,68 @@ export function isValidCell(r, c) {
   return r >= 1 && r <= 5 && c >= 1 && c <= 5 && validCells.has(`${r},${c}`);
 }
 
+// Normalize blocked/deadzone input into a Set of "r,c" strings.
+// Accepts Set/Array of strings ("2,1" / "2.1"), positions ([2,1]), objects ({row,col}), or map ({"2,1":true}).
+function normalizeBlocked(blockedCells) {
+  const out = new Set();
+  if (!blockedCells) return out;
+
+  const add = (r, c) => {
+    const rr = Number(r);
+    const cc = Number(c);
+    if (Number.isFinite(rr) && Number.isFinite(cc)) out.add(`${rr},${cc}`);
+  };
+
+  const addAny = (v) => {
+    if (v == null) return;
+    if (typeof v === "string") {
+      const m = v.trim().match(/(\d+)\D+(\d+)/);
+      if (m) add(m[1], m[2]);
+      return;
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      const r = Math.floor(v);
+      const c = Math.round((v - r) * 10);
+      add(r, c);
+      return;
+    }
+    if (Array.isArray(v) && v.length >= 2) {
+      add(v[0], v[1]);
+      return;
+    }
+    if (typeof v === "object") {
+      const keys = Object.keys(v);
+      if (keys.length && keys.every((k) => typeof k === "string")) {
+        keys.forEach((k) => {
+          if (v[k]) addAny(k);
+        });
+        return;
+      }
+
+      const r = v.r ?? v.row;
+      const c = v.c ?? v.col;
+      if (r != null && c != null) add(r, c);
+    }
+  };
+
+  if (blockedCells instanceof Set) {
+    for (const v of blockedCells) addAny(v);
+    return out;
+  }
+  if (Array.isArray(blockedCells)) {
+    blockedCells.forEach(addAny);
+    return out;
+  }
+
+  addAny(blockedCells);
+  return out;
+}
+
 function heuristic(a, b) {
   return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
 }
 
-function getNeighbors([r, c]) {
+function getNeighbors([r, c], blockedSet) {
   return [
     [0, 1],
     [0, -1],
@@ -45,7 +102,7 @@ function getNeighbors([r, c]) {
     [-1, 0],
   ]
     .map(([dr, dc]) => [r + dr, c + dc])
-    .filter(([nr, nc]) => isValidCell(nr, nc));
+    .filter(([nr, nc]) => isValidCell(nr, nc) && !blockedSet?.has(`${nr},${nc}`));
 }
 
 function key(pos) {
@@ -139,8 +196,11 @@ function isBlocked(reservedParsed, from, to, t) {
 }
 
 // A* in time-expanded graph (pos + time)
-function aStar(start, goal, reservedSet, startTime = 0, otherPath = [], otherStartTime = 0) {
+function aStar(start, goal, reservedSet, startTime = 0, otherPath = [], otherStartTime = 0, blockedSet = null) {
   const reserved = parseReserved(reservedSet);
+
+  // Deadzone blocks (static obstacles)
+  if (blockedSet?.has(key(start)) || blockedSet?.has(key(goal))) return null;
 
   const open = [];
   const cameFrom = new Map();
@@ -174,9 +234,12 @@ function aStar(start, goal, reservedSet, startTime = 0, otherPath = [], otherSta
 
     if (current.t - startTime > maxTime) continue;
 
-    const candidates = [...getNeighbors(current.pos), current.pos]; // + wait
+    const candidates = [...getNeighbors(current.pos, blockedSet), current.pos]; // + wait
     for (const nextPos of candidates) {
       const nextT = current.t + 1;
+
+      // 0) deadzone check
+      if (blockedSet?.has(key(nextPos))) continue;
 
       // 1) reserved checks (node/edge/corridor)
       if (isBlocked(reserved, current.pos, nextPos, nextT)) continue;
@@ -290,9 +353,13 @@ export function findSafePathWithReturn(
   otherPath = [],
   otherStartTime = 0,
   v2DelayTicks = 0,
-  returnTarget = null
+  returnTarget = null,
+  blockedCells = null
 ) {
+  const blockedSet = normalizeBlocked(blockedCells);
+
   if (!isValidCell(start[0], start[1]) || !isValidCell(goal[0], goal[1])) return null;
+  if (blockedSet.has(key(start)) || blockedSet.has(key(goal))) return null;
 
   const baseReserved = new Set(reservedTimes || []);
 
@@ -302,7 +369,7 @@ export function findSafePathWithReturn(
   }
 
   // --- TO GOAL ---
-  const pathToGoal = aStar(start, goal, baseReserved, timeOffset, otherPath, otherStartTime);
+  const pathToGoal = aStar(start, goal, baseReserved, timeOffset, otherPath, otherStartTime, blockedSet);
   if (!pathToGoal || pathToGoal.length < 2) return null;
 
   const arrivalTime = timeOffset + (pathToGoal.length - 1);
@@ -312,6 +379,8 @@ export function findSafePathWithReturn(
 
   // --- RETURN PATH ---
     const backTarget = returnTarget || start;
+    if (!isValidCell(backTarget[0], backTarget[1])) return null;
+    if (blockedSet.has(key(backTarget))) return null;
     let returnPath = null;
     let chosenWait = 0;
   
@@ -327,7 +396,8 @@ export function findSafePathWithReturn(
         baseReserved,              // giữ nguyên reserved timeline
         arrivalTime + wait + 1,    // start return after waiting
         otherPath,
-        otherStartTime
+        otherStartTime,
+        blockedSet
       );
   
       if (candidate && candidate.length >= 2) {

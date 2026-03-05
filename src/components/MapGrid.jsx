@@ -1,5 +1,7 @@
 // src/components/MapGrid.jsx
 import Vehicle from "./Vehicle";
+import Deadzone from "./deadzone";
+import { isValidCell } from "../utils/aStar";
 
 const normalizeId = (id) => String(id || "").trim().toUpperCase();
 
@@ -54,6 +56,19 @@ const parsePos = (v) => {
 };
 
 const samePos = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+const posKey = (p) => (p ? `${p[0]},${p[1]}` : "");
+
+// Convert a grid position to CSS % coordinates that match labels/vehicle/route geometry.
+// Important: This UI uses an inset grid (labels are at 2%,22%,... not 0%,20%,...).
+const toCssPoint = (pos) => {
+  const p = parsePos(pos);
+  if (!p) return { left: "50%", top: "50%" };
+  const [row, col] = p;
+  return {
+    left: `${col * 20 - 18}%`,
+    top: `${(5 - row) * 20 + 18}%`,
+  };
+};
 
 const compactPath = (path = []) => {
   if (!Array.isArray(path) || path.length === 0) return [];
@@ -142,8 +157,6 @@ const getRemainingRoute = (v) => {
   const cp = compactPath(sliced);
   return cp.length >= 2 ? cp : null;
 };
-
-
 
 // ---- Visual tidy: multi-lane offset per shared segment (đỡ lộn xộn) ----
 const segKey = (a, b) => {
@@ -250,7 +263,19 @@ const strokeStyleForVehicle = (id, fallbackIndex = 0) => {
   return { stroke, dasharray, dashoffset };
 };
 
-export default function MapGrid({ vehicles = [], v1, v2, showRoutes }) {
+export default function MapGrid({
+  vehicles = [],
+  v1,
+  v2,
+  showRoutes,
+  // ---- Deadzone props (optional) ----
+  // deadZones can be: Array<[r,c] | "4.2" | "4,2" | {r,c}> OR Set of those.
+  deadZones = [],
+  // when true: show clickable hotspots at intersections
+  deadZoneMode = false,
+  // callback: (pos:[r,c]) => void
+  onToggleDeadZone,
+}) {
   const list = vehicles && vehicles.length > 0 ? vehicles : [v1, v2].filter(Boolean);
 
   const shouldShowRoutes =
@@ -295,6 +320,25 @@ export default function MapGrid({ vehicles = [], v1, v2, showRoutes }) {
 
   // Build once per render: which segments are shared by multiple vehicles
   const segmentUsers = buildSegmentUsers(list);
+
+  // Normalize deadZones to unique list of [r,c]
+  const deadZoneInput =
+    deadZones instanceof Set ? Array.from(deadZones) : Array.isArray(deadZones) ? deadZones : [];
+
+  const deadZoneSet = new Set();
+  const deadZonePoints = [];
+  for (const z of deadZoneInput) {
+    const p = parsePos(z);
+    if (!p) continue;
+    const k = posKey(p);
+    if (deadZoneSet.has(k)) continue;
+    deadZoneSet.add(k);
+    deadZonePoints.push(p);
+  }
+
+  const handleToggle = (pos) => {
+    if (typeof onToggleDeadZone === "function") onToggleDeadZone(pos);
+  };
 
   return (
     <div
@@ -398,11 +442,123 @@ export default function MapGrid({ vehicles = [], v1, v2, showRoutes }) {
                       strokeDasharray={dasharray || undefined}
                       strokeDashoffset={dashoffset || undefined}
                     />
-</g>
+
+                    {/* start cap */}
+                    <circle
+                      cx={startC.x}
+                      cy={startC.y}
+                      r={1.6}
+                      fill={stroke}
+                      opacity={0.95}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
                 );
               })}
           </g>
         </svg>
+      )}
+
+      {/* ===== Deadzone UI (POINT-BASED, not cell-based) ===== */}
+      {deadZoneMode && (
+        <div
+          style={{
+            position: "absolute",
+            left: 14,
+            top: 12,
+            zIndex: 90,
+            padding: "6px 10px",
+            borderRadius: 999,
+            border: "1px solid rgba(239,68,68,0.55)",
+            background: "rgba(2,6,23,0.45)",
+            color: "#fecaca",
+            fontSize: 12,
+            fontWeight: 900,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            boxShadow: "0 10px 20px rgba(2,6,23,0.35)",
+          }}
+        >
+          🚧 Chế độ tạo vật cản
+          <span style={{ opacity: 0.75, fontWeight: 700 }}>(click giao lộ để bật/tắt)</span>
+        </div>
+      )}
+
+      {/* markers at exact intersections */}
+      {deadZonePoints.map((p) => {
+        const k = posKey(p);
+        const pt = toCssPoint(p);
+        return (
+          <div
+            key={`deadzone-${k}`}
+            style={{
+              position: "absolute",
+              ...pt,
+              transform: "translate(-50%, -50%)",
+              zIndex: 60,
+              pointerEvents: "none",
+            }}
+          >
+            {/* subtle halo so user knows it's a POINT */}
+            <div
+              style={{
+                position: "absolute",
+                inset: -10,
+                borderRadius: 999,
+                background: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.35)",
+                filter: "blur(0px)",
+              }}
+            />
+            <div style={{ position: "relative" }}>
+              <Deadzone size={18} title={`Điểm nguy hiểm ${p[0]}.${p[1]}`} />
+            </div>
+          </div>
+        );
+      })}
+
+      {/* click targets (only visible/active when deadZoneMode=true) */}
+      {deadZoneMode && typeof onToggleDeadZone === "function" && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 65 }}>
+          {labels.map((label) => {
+            const r = label.row;
+            const c = label.line - 1;
+            // Only allow toggling on valid road nodes (otherwise it's meaningless)
+            if (typeof isValidCell === "function" && !isValidCell(r, c)) return null;
+
+            const k = `${r},${c}`;
+            const pt = toCssPoint([r, c]);
+            const isBlocked = deadZoneSet.has(k);
+            return (
+              <button
+                key={`deadzone-hit-${k}`}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleToggle([r, c]);
+                }}
+                title={`${isBlocked ? "Bỏ" : "Tạo"} vật cản tại ${r}.${c}`}
+                style={{
+                  position: "absolute",
+                  ...pt,
+                  transform: "translate(-50%, -50%)",
+                  width: 26,
+                  height: 26,
+                  borderRadius: 999,
+                  border: isBlocked
+                    ? "2px solid rgba(239,68,68,0.9)"
+                    : "1px dashed rgba(148,163,184,0.55)",
+                  background: isBlocked ? "rgba(239,68,68,0.12)" : "rgba(2,6,23,0.10)",
+                  cursor: "pointer",
+                  padding: 0,
+                  outline: "none",
+                }}
+              />
+            );
+          })}
+        </div>
       )}
 
       {/* grid */}

@@ -22,6 +22,9 @@ const loadSavedState = (key, defaultValue) => {
   }
 };
 
+// Shared (Home + RealTime) deadzone storage key
+const DEADZONE_LS_KEY = "deadZones";
+
 const buildDefaultVehicles = () => ([
   makeVehicle("V1", START_SPOTS[0], [5, 3]),
   makeVehicle("V2", START_SPOTS[1], [5, 5]),
@@ -82,6 +85,35 @@ const parsePos = (v) => {
   return null;
 };
 
+// deadzones are stored as array of "r,c" strings for stability.
+const normalizeDeadZones = (raw) => {
+  const src = raw instanceof Set ? Array.from(raw) : Array.isArray(raw) ? raw : [];
+  const out = new Set();
+  for (const item of src) {
+    const p = parsePos(item);
+    if (!p) continue;
+    if (p[0] < 1 || p[0] > 5 || p[1] < 1 || p[1] > 5) continue;
+    out.add(posKey(p));
+  }
+  return Array.from(out);
+};
+
+// Parse a text input into multiple grid positions.
+// Accepts: "2.1 1.2", "2,1;1,2", "(2.1) và (1.2)", etc.
+const parseMultiPositions = (text) => {
+  if (!text || typeof text !== "string") return [];
+  const matches = [...text.matchAll(/(\d+)\D+(\d+)/g)];
+  const out = [];
+  for (const m of matches) {
+    const r = Number(m[1]);
+    const c = Number(m[2]);
+    if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+    if (r < 1 || r > 5 || c < 1 || c > 5) continue;
+    out.push([r, c]);
+  }
+  return out;
+};
+
 function makeVehicle(id, startPos, endPos) {
   return {
     id,
@@ -124,11 +156,24 @@ export default function Home() {
 
   const [logs, setLogs] = useState(() => loadSavedState("home_logs", []));
 
+  // ===== Deadzones (static obstacles) =====
+  const [deadZones, setDeadZones] = useState(() =>
+    normalizeDeadZones(loadSavedState(DEADZONE_LS_KEY, []))
+  );
+  const [deadZoneMode, setDeadZoneMode] = useState(false);
+  const [deadZoneText, setDeadZoneText] = useState("");
+
+  const deadZoneSetRef = useRef(new Set(deadZones));
+  useEffect(() => {
+    deadZoneSetRef.current = new Set(deadZones);
+  }, [deadZones]);
+
   useEffect(() => {
     localStorage.setItem("home_vehicles_state", JSON.stringify(vehicles));
     localStorage.setItem("home_cargoAmounts", JSON.stringify(cargoAmounts));
     localStorage.setItem("home_logs", JSON.stringify(logs));
-  }, [vehicles, cargoAmounts, logs]);
+    localStorage.setItem(DEADZONE_LS_KEY, JSON.stringify(deadZones));
+  }, [vehicles, cargoAmounts, logs, deadZones]);
 
   const addLog = (id, deliveries, pathOrMessage) => {
     const now = new Date().toLocaleString("vi-VN", {
@@ -146,6 +191,105 @@ export default function Home() {
       message = `[${now}] Xe ${id}: ${pathStr}`;
     }
     setLogs((prev) => [...prev, message]);
+  };
+
+  // ===== Deadzone helpers =====
+  const formatDot = (kOrPos) => {
+    if (typeof kOrPos === "string") return kOrPos.replace(",", ".");
+    const p = parsePos(kOrPos);
+    return p ? `${p[0]}.${p[1]}` : "?";
+  };
+
+  const validateDeadZonesNow = (deadSet) => {
+    // If any idle vehicle becomes impossible to reach its goal => log error immediately.
+    const errors = [];
+
+    for (const v of vehicles) {
+      // Only validate when vehicle is idle (planning stage)
+      if (v.status !== "idle") continue;
+
+      const start = parsePos(v.pos) || v.pos;
+      const goal = parsePos(v.endPos);
+      if (!start || !goal) continue;
+
+      const startKey = posKey(start);
+      const goalKey = posKey(goal);
+
+      if (deadSet.has(startKey)) {
+        errors.push(`❌ ${v.id} đang ở ${formatDot(startKey)} nhưng vị trí này là vật cản (deadzone).`);
+        continue;
+      }
+      if (deadSet.has(goalKey)) {
+        errors.push(`❌ ${v.id}: Điểm đến ${formatDot(goalKey)} đang là vật cản (deadzone).`);
+        continue;
+      }
+
+      const p = aStarSearch(start, goal, false, null, deadSet);
+      if (!p || p.length < 2) {
+        errors.push(
+          `❌ ${v.id}: Không tìm được đường từ ${formatDot(startKey)} đến ${formatDot(goalKey)} do vật cản.`
+        );
+      }
+    }
+
+    if (errors.length) {
+      errors.forEach((msg) => {
+        console.error(msg);
+        addLog("System", 0, msg);
+      });
+      // also surface latest error on UI banner
+      setAlertMessage(errors[0]);
+    }
+  };
+
+  const applyDeadZones = (nextKeys) => {
+    const next = normalizeDeadZones(nextKeys);
+    setDeadZones(next);
+    deadZoneSetRef.current = new Set(next);
+    validateDeadZonesNow(new Set(next));
+  };
+
+  const toggleDeadZone = (pos) => {
+    // avoid editing while vehicles are running
+    if (vehicles.some((v) => v.status !== "idle")) {
+      addLog("System", 0, "⚠️ Không thể tạo vật cản khi xe đang chạy/đợi. Vui lòng chờ xe idle.");
+      return;
+    }
+
+    const p = parsePos(pos);
+    if (!p) return;
+
+    const k = posKey(p);
+    const set = new Set(deadZoneSetRef.current);
+    if (set.has(k)) set.delete(k);
+    else set.add(k);
+    applyDeadZones(Array.from(set));
+  };
+
+  const addDeadZonesFromText = () => {
+    if (vehicles.some((v) => v.status !== "idle")) {
+      addLog("System", 0, "⚠️ Không thể tạo vật cản khi xe đang chạy/đợi. Vui lòng chờ xe idle.");
+      return;
+    }
+
+    const positions = parseMultiPositions(deadZoneText);
+    if (!positions.length) {
+      addLog("System", 0, "⚠️ Vui lòng nhập ít nhất 1 vị trí vật cản. Ví dụ: 2.1, 1.2");
+      return;
+    }
+
+    const set = new Set(deadZoneSetRef.current);
+    positions.forEach((p) => set.add(posKey(p)));
+    applyDeadZones(Array.from(set));
+    setDeadZoneText("");
+  };
+
+  const clearDeadZones = () => {
+    if (vehicles.some((v) => v.status !== "idle")) {
+      addLog("System", 0, "⚠️ Không thể xoá vật cản khi xe đang chạy/đợi. Vui lòng chờ xe idle.");
+      return;
+    }
+    applyDeadZones([]);
   };
 
   // ===== Persist alerts for Alert.jsx (legacy compatible) =====
@@ -320,9 +464,11 @@ moveVehicleById(vehicleId, (v) => ({ ...v, [field]: normalizedValue }));
       }
 
       // A* đi giao xong quay về điểm ưu tiên (HOME hoặc bến đỗ thay thế)
-      const fullPath = aStarSearch(start, goal, true, returnSpot);
+      const fullPath = aStarSearch(start, goal, true, returnSpot, deadZoneSetRef.current);
       if (!fullPath || fullPath.length < 2) {
-        alert(`Xe ${vehicleId}: Không tìm thấy đường!`);
+        const msg = `❌ ${vehicleId}: Không tìm thấy đường đi phù hợp (có thể bị chặn bởi vật cản).`;
+        alert(msg);
+        addLog("System", 0, msg);
         return;
       }
 
@@ -390,13 +536,30 @@ moveVehicleById(vehicleId, (v) => ({ ...v, [field]: normalizedValue }));
             // ✅ Chỉ set running sau khi planner chạy OK (tránh kẹt nút nếu planner throw)
             const result = planMultiCarsRoute({
               vehicles: planInput,
-              baseDelayTicks: 4,
+              baseDelayTicks: 2,
               baseDelayMs: 4000,
               maxCars: 5,
+              blockedCells: deadZoneSetRef.current,
             });
       
             if (!result) {
-              addLog("System", 0, "❌ Không tìm được lộ trình an toàn cho tất cả xe!");
+              addLog(
+                "System",
+                0,
+                "❌ Không tìm được lộ trình an toàn cho tất cả xe (có thể do vật cản hoặc xung đột tránh va chạm)."
+              );
+
+              // diagnostic: log which vehicle is individually blocked by deadzones
+              for (const v of planInput) {
+                const p = aStarSearch(v.startPos, v.endPos, false, null, deadZoneSetRef.current);
+                if (!p || p.length < 2) {
+                  addLog(
+                    "System",
+                    0,
+                    `❌ ${v.id}: Không có đường đi từ ${formatDot(v.startPos)} đến ${formatDot(v.endPos)} do vật cản.`
+                  );
+                }
+              }
               return;
             }
       
@@ -509,7 +672,7 @@ if (
   returnTarget &&
   !samePos(returnTarget, vehicle.endPos)
 ) {
-  const ret = aStarSearch(nextPos, returnTarget, false);
+  const ret = aStarSearch(nextPos, returnTarget, false, null, deadZoneSetRef.current);
   if (Array.isArray(ret) && ret.length >= 2) {
     nextPath = ret.slice(1);
 
@@ -686,11 +849,16 @@ if (finished) {
     localStorage.removeItem("deliveryCounter");
     localStorage.removeItem("tripLogs");
     localStorage.removeItem("warehouse_stock");
+    localStorage.removeItem(DEADZONE_LS_KEY);
   
     // reset state tại chỗ (không cần reload)
     setVehicles(buildDefaultVehicles());
     setCargoAmounts(buildDefaultCargo());
     setLogs([]);
+    setDeadZones([]);
+    deadZoneSetRef.current = new Set();
+    setDeadZoneMode(false);
+    setDeadZoneText("");
   
     setIsRunningTogether(false);
     setAlertMessage("");
@@ -856,7 +1024,15 @@ const showRoutes =
         <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", height: "calc(100vh - 180px)", minHeight: "720px", maxHeight: "900px" }}>
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
 
-            <MapGrid v1={v1} v2={v2} vehicles={vehicles} showRoutes={showRoutes} />
+            <MapGrid
+              v1={v1}
+              v2={v2}
+              vehicles={vehicles}
+              showRoutes={showRoutes}
+              deadZones={deadZones}
+              deadZoneMode={deadZoneMode}
+              onToggleDeadZone={toggleDeadZone}
+            />
 
           </div>
           <div style={{ paddingTop: 18, display: "flex", justifyContent: "center" }}>
@@ -1009,22 +1185,144 @@ const showRoutes =
             
 
               <button
-                onClick={() => navigate("/warehouse")}
+                type="button"
+                onClick={() => {
+                  if (vehicles.some((v) => v.status !== "idle")) {
+                    addLog("System", 0, "⚠️ Vui lòng chờ xe idle rồi mới tạo vật cản.");
+                    return;
+                  }
+                  setDeadZoneMode((m) => !m);
+                }}
                 style={{
                   width: "100%",
                   padding: "14px 16px",
                   borderRadius: 14,
-                  border: "1px solid rgba(96,165,250,0.45)",
-                  background: "linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.25))",
-                  color: "#e2e8f0",
-                  fontWeight: 800,
+                  border: "1px solid rgba(239,68,68,0.55)",
+                  background: deadZoneMode
+                    ? "linear-gradient(135deg, rgba(239,68,68,0.35), rgba(251,113,133,0.18))"
+                    : "linear-gradient(135deg, rgba(239,68,68,0.22), rgba(251,113,133,0.10))",
+                  color: "#ffe4e6",
+                  fontWeight: 900,
                   letterSpacing: "0.4px",
                   cursor: "pointer",
                   boxShadow: "0 10px 22px rgba(2,6,23,0.35)",
                 }}
               >
-                📦 Qua trang Quản lý kho
+                🚧 {deadZoneMode ? "Đang tạo vật cản (click trên map)" : "Tạo vật cản"}
               </button>
+
+              {/* Deadzone panel */}
+              {deadZoneMode && (
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 14,
+                    border: "1px solid rgba(239,68,68,0.25)",
+                    background: "rgba(2,6,23,0.35)",
+                    boxShadow: "0 10px 22px rgba(2,6,23,0.25)",
+                  }}
+                >
+                  <div style={{ color: "rgba(226,232,240,0.8)", fontSize: 12, lineHeight: 1.35 }}>
+                    • Nhập 1 hoặc nhiều vị trí. Ví dụ: <b>2.1, 1.2</b>
+                    <br />
+                    • Hoặc click trực tiếp lên grid để bật/tắt vật cản.
+                  </div>
+
+                  <input
+                    value={deadZoneText}
+                    onChange={(e) => setDeadZoneText(e.target.value)}
+                    placeholder="VD: 2.1, 1.2, 3.4"
+                    style={{
+                      marginTop: 10,
+                      width: "100%",
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid rgba(239,68,68,0.25)",
+                      background: "rgba(2,6,23,0.35)",
+                      color: "#e2e8f0",
+                      outline: "none",
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+
+                  <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={addDeadZonesFromText}
+                      style={{
+                        flex: 1,
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(239,68,68,0.45)",
+                        background: "rgba(239,68,68,0.18)",
+                        color: "#ffe4e6",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Thêm
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={clearDeadZones}
+                      style={{
+                        flex: 1,
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: "1px solid rgba(148,163,184,0.22)",
+                        background: "rgba(148,163,184,0.08)",
+                        color: "#e2e8f0",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Xóa tất cả
+                    </button>
+                  </div>
+
+                  {deadZones.length > 0 ? (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid rgba(148,163,184,0.14)",
+                        background: "rgba(15,23,42,0.25)",
+                        color: "rgba(226,232,240,0.8)",
+                        fontSize: 12,
+                        lineHeight: 1.35,
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      <b>Vật cản hiện tại ({deadZones.length}):</b> {deadZones.map((k) => formatDot(k)).join(", ")}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 10, color: "rgba(226,232,240,0.6)", fontSize: 12 }}>
+                      Chưa có vật cản.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!deadZoneMode && deadZones.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 14,
+                    border: "1px solid rgba(239,68,68,0.22)",
+                    background: "rgba(2,6,23,0.25)",
+                    color: "rgba(254,202,202,0.85)",
+                    fontSize: 12,
+                    lineHeight: 1.35,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  🚧 Vật cản ({deadZones.length}): {deadZones.map((k) => formatDot(k)).join(", ")}
+                </div>
+              )}
 
               <button
                 onClick={handleResetApp}

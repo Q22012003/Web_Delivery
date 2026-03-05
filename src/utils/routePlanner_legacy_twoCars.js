@@ -28,10 +28,11 @@ export function planTwoCarsRoute({
   v2End,
   v2DelayMs = 3500,
   v2DelayTicks = 4,
+  blockedCells = null,
 }) {
   // ===== 1. TÍNH AI VỀ 1.1 TRƯỚC (naive) =====
-  const v1Naive = aStarSearch(v1Start, v1End, true, HOME);
-  const v2Naive = aStarSearch(v2Start, v2End, true, HOME);
+  const v1Naive = aStarSearch(v1Start, v1End, true, HOME, blockedCells);
+  const v2Naive = aStarSearch(v2Start, v2End, true, HOME, blockedCells);
 
   if (!v1Naive || !v2Naive) return null;
 
@@ -60,7 +61,8 @@ export function planTwoCarsRoute({
     [],
     0,
     winnerDelay,
-    HOME
+    HOME,
+    blockedCells
   );
 
   if (!winnerPath) return null;
@@ -104,7 +106,8 @@ export function planTwoCarsRoute({
       winnerPath,
       0,
       loserDelay,
-      park
+      park,
+      blockedCells
     );
 
     if (candidate) {

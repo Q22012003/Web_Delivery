@@ -3,7 +3,7 @@ const http = require("http");
 const express = require("express");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const { connectToAwsIot, startNavigationSequence } = require("./services/awsIotService.js");
+const { connectToAwsIot, startNavigationSequence, sendCommandToCar } = require("./services/awsIotService.js");
 
 const app = express();
 const server = http.createServer(app);
@@ -49,6 +49,56 @@ app.post("/api/car/navigate", (req, res) => {
   } catch (error) {
     console.error("Lỗi khi gọi startNavigationSequence:", error);
     res.status(500).json({ error: "Lỗi Server nội bộ" });
+  }
+});
+
+
+// --- API GỬI LỆNH TRỰC TIẾP XUỐNG XE (HOLD/STOP/FINISH/DELIVERED...) ---
+app.post("/api/car/command", (req, res) => {
+  const allowed = new Set(["V1","V2","V3","V4","V5"]);
+  const vehicle_id = req.body?.vehicle_id;
+
+  if (!vehicle_id || !allowed.has(vehicle_id)) {
+    return res.status(400).json({ error: "vehicle_id phải là 'V1'..'V5'" });
+  }
+
+  // Accept either { command: {...} } or flat body { type, ms, ... }
+  const rawCmd = (req.body && typeof req.body.command === "object" && req.body.command) ? req.body.command : req.body;
+  const type = String(rawCmd?.type || "").toUpperCase();
+
+  const allowTypes = new Set(["STOP", "HOLD", "FINISH", "DELIVERED", "STEP"]);
+  if (!type || !allowTypes.has(type)) {
+    return res.status(400).json({ error: `type không hợp lệ. Cho phép: ${Array.from(allowTypes).join(", ")}` });
+  }
+
+  // sanitize payload (only forward known keys to MCU)
+  const cmd = { type };
+
+  if (type === "HOLD") {
+    const ms = Number(rawCmd?.ms ?? 3000);
+    cmd.ms = Number.isFinite(ms) ? ms : 3000;
+  }
+
+  if (type === "STEP") {
+    // ⚠️ Chỉ dùng để test. Bình thường dùng /api/car/navigate
+    if (!rawCmd?.target || !rawCmd?.direction) {
+      return res.status(400).json({ error: "STEP cần đủ target và direction" });
+    }
+    cmd.target = String(rawCmd.target);
+    cmd.direction = String(rawCmd.direction).toUpperCase();
+  }
+
+  if (type === "STOP") {
+    // optional: reset heading
+    if (rawCmd?.reset_heading != null) cmd.reset_heading = !!rawCmd.reset_heading;
+  }
+
+  try {
+    sendCommandToCar(vehicle_id, cmd);
+    return res.json({ success: true, vehicle_id, sent: cmd });
+  } catch (e) {
+    console.error("[API] sendCommandToCar error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "sendCommandToCar failed" });
   }
 });
 

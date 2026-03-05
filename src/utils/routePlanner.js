@@ -73,13 +73,13 @@ function reserveHold(reserved, finalPos, fromTime, holdTicks = 80) {
   for (let t = fromTime; t <= fromTime + holdTicks; t++) reserved.add(nodeToken(finalPos, t));
 }
 
-function estimateETA(start, end, delayTicks) {
-  const naive = aStarSearch(start, end, true, HOME);
+function estimateETA(start, end, delayTicks, blockedCells = null) {
+  const naive = aStarSearch(start, end, true, HOME, blockedCells);
   if (!naive || naive.length < 2) return Number.POSITIVE_INFINITY;
   return (naive.length - 1) + delayTicks;
 }
 
-function assignReturnTargetsByETA(vehicles) {
+function assignReturnTargetsByETA(vehicles, blockedCells = null) {
     // Yêu cầu của bạn:
     // - Xe có ETA về đích (goal) nhỏ nhất sẽ được ưu tiên về bến 1.1
     // - Các xe còn lại lần lượt về 1.2, 1.3, 1.4, 1.5
@@ -88,7 +88,7 @@ function assignReturnTargetsByETA(vehicles) {
     const ranked = vehicles
       .map((v) => ({
         id: v.id,
-        eta: estimateETA(v.startPos, v.endPos, v.delayTicks || 0),
+        eta: estimateETA(v.startPos, v.endPos, v.delayTicks || 0, blockedCells),
       }))
       .sort((a, b) => a.eta - b.eta);
   
@@ -134,6 +134,7 @@ export function planMultiCarsRoute({
   baseDelayTicks = 4,
   baseDelayMs = 3500,
   maxCars = 5,
+  blockedCells = null,
 }) {
   if (!Array.isArray(vehicles) || vehicles.length === 0) return null;
 
@@ -144,7 +145,7 @@ export function planMultiCarsRoute({
     delayMs: idx === 0 ? 0 : (v.delayMs ?? idx * baseDelayMs),
   }));
     // Quyết định bến đỗ theo ETA (winner -> 1.1, các xe sau -> 1.2..1.5)
-    const etaInfo = assignReturnTargetsByETA(list);
+    const etaInfo = assignReturnTargetsByETA(list, blockedCells);
     const assignedReturnTargets = etaInfo.returnMap;
   
   // ưu tiên V1..Vn theo index (đúng yêu cầu)
@@ -161,7 +162,7 @@ export function planMultiCarsRoute({
     const timeOffset = v.delayTicks;
 
     // ước lượng ETA để chọn bến đỗ hợp lý (ưu tiên 1.1)
-    const etaApprox = estimateETA(start, goal, timeOffset);
+    const etaApprox = estimateETA(start, goal, timeOffset, blockedCells);
 
         // BẾN ĐỖ:
         // - assignedReturnTargets được quyết định theo ETA (winner -> 1.1)
@@ -184,7 +185,8 @@ export function planMultiCarsRoute({
       [],               // otherPath (đã dồn vào reserved nên không cần)
       0,
       0,
-      chosenReturn      // returnTarget
+      chosenReturn,     // returnTarget
+      blockedCells      // deadzones
     );
 
     if (!fullPath || fullPath.length < 2) {
@@ -205,6 +207,12 @@ export function planMultiCarsRoute({
       delayTicks: v.delayTicks,
       returnTarget: finalPos,
       meta: {
+              // Điểm giao hàng (goal) - dùng cho LED xanh (DELIVERED)
+              goalPos: posKey(goal),
+
+              // Điểm quay về (bến/parking) - thường là node cuối của fullPath
+              returnPos: posKey(finalPos),
+
               etaGoal: etaInfo.ranked.find((x) => x.id === v.id)?.eta ?? etaApprox,
               rank: etaInfo.rankMap?.[v.id] ?? 999,   // 0 = winner
               winnerId: etaInfo.winnerId,
