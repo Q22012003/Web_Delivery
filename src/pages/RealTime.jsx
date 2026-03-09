@@ -931,7 +931,9 @@ setIsRunningTogether(true);
       const cargo = cargoAmounts[v.id] ?? "";
       
             // ===== META đồng bộ ETA (giống Home.jsx) =====
-            const delayTicks = (v.id === leadId) ? Number(res?.delayTicks ?? 0) : 3; // V2 must wait 3 ticks after V1
+            // ✅ delayTicks phải lấy từ planner để đồng bộ timeline với backend step-gate.
+            // Không hardcode (vd 3) vì sẽ lệch so với baseDelayTicks=4 và gây HOLD/đụng lịch.
+            const delayTicks = Number(res?.delayTicks ?? 0);
             const goalPos = v.endPos;
             const startPosForEta = v.startPos;
 	            const naive = (startPosForEta && goalPos)
@@ -947,58 +949,15 @@ setIsRunningTogether(true);
               etaGoalTicks,
             };
       
-      if (v.id === leadId) {
-        setVehicles((prev) =>
-          prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
-        );
-        saveTripLogToStorage(v.id, (fullPath && fullPath[0]) ? fullPath[0] : null, v.endPos, cargo, fullPath);
-        sendPathToBackend(v.id, fullPath, cargo, metaPayload);
-
-        return;
-      }
-  
-      const leadTicks = 4; // ✅ bắt buộc: V2 đợi V1 đi 3 tick rồi mới start
-  
-      if (leadTicks <= 0) {
-        setVehicles((prev) =>
-          prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
-        );
-        saveTripLogToStorage(v.id, (fullPath && fullPath[0]) ? fullPath[0] : null, v.endPos, cargo, fullPath);
-        sendPathToBackend(v.id, fullPath, cargo, metaPayload);
-        return;
-      }
-  
-      gate.waiting[v.id] = { leadTicks, path: fullPath, cargo, meta: metaPayload };
-      // Fallback: nếu không nhận được đủ "car:position" (thực tế QR/ACK chậm),
-      // vẫn cho xe start theo thời gian delayMs để nút "chạy cùng lúc" luôn hoạt động.
-      const delayMs = Number(res?.delayMs ?? (leadTicks * 1000));
-      if (delayMs > 0) {
-        if (startTimersRef.current[v.id]) clearTimeout(startTimersRef.current[v.id]);
-        startTimersRef.current[v.id] = setTimeout(() => {
-          const w = gate.waiting?.[v.id];
-          if (!w) return; // đã start bằng gate progress rồi
-
-          // ✅ Không cho start sớm: chỉ start khi V1 đã đi đủ 3 tick (theo yêu cầu)
-          const leadNow = gate.leadId;
-          const need = Number(w?.leadTicks || 3);
-          const prog = Number(gate.progress?.[leadNow] || 0);
-          if (prog < need) {
-            debugLog(`${v.id} fallback fired (${delayMs}ms) nhưng V1 mới đi ${prog}/${need} tick -> vẫn chờ`);
-            return;
-          }
-
-          debugLog(`${v.id} fallback start after ${delayMs}ms (V1 ${prog}/${need} tick)`);
-          setVehicles((prev) =>
-            prev.map((x) =>
-              x.id === v.id ? { ...x, status: "moving", tripLog: w.path || [] } : x
-            )
-          );
-          saveTripLogToStorage(v.id, (w.path && w.path[0]) ? w.path[0] : null, (w.meta && w.meta.goalPos) ? csvToPos(w.meta.goalPos) : null, w.cargo, w.path);
-          sendPathToBackend(v.id, w.path, w.cargo, w.meta);
-          delete gate.waiting[v.id];
-        }, delayMs);
-      }
-
+      // ✅ Start ALL vehicles ngay lập tức.
+      // Backend (awsIotService) đã có step-gate theo meta.delayTicks + batchId + leadId.
+      // Gửi sớm giúp backend cập nhật occupancy/startPoint của V2 ngay từ đầu,
+      // tránh ghost-occupancy khiến V1 bị HOLD vô lý.
+      setVehicles((prev) =>
+        prev.map((x) => (x.id === v.id ? { ...x, status: "moving", tripLog: fullPath } : x))
+      );
+      saveTripLogToStorage(v.id, (fullPath && fullPath[0]) ? fullPath[0] : null, v.endPos, cargo, fullPath);
+      sendPathToBackend(v.id, fullPath, cargo, metaPayload);
     });
   };
 

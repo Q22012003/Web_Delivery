@@ -23,6 +23,9 @@ const TOPICS = {
 // ====== occupancy (source-of-truth = last ACK node từ MCU) ======
 const occupancy = {}; // { "r,c": "V1" | "V2" }
 
+// Chuẩn hoá mọi input vị trí về "r,c" (đề phòng client gửi "r.c" hoặc có spaces)
+const normPos = (p) => String(p ?? "").trim().replace(/\./g, ",");
+
 // ===== helpers for batch + ghost-occupancy cleanup =====
 const getBatchId = (s) => (s?.batchId ?? s?.meta?.batchId ?? null);
 
@@ -511,7 +514,8 @@ const startNavigationSequence = (vehicleId, rawPath, startPoint, meta = {}) => {
 
   const s = sessions[vehicleId];
   console.log("-------------------------------------------------------");
-  console.log(`[NAVIGATE ${vehicleId}] Start: ${startPoint}`);
+  const startStr = normPos(startPoint);
+  console.log(`[NAVIGATE ${vehicleId}] Start: ${startStr}`);
 
   // meta: { batchId, goalPos, delayTicks, etaGoalTicks, rank, winnerId, assignedReturn ... }
   s.batchId = meta?.batchId ?? s.batchId;
@@ -533,18 +537,18 @@ const startNavigationSequence = (vehicleId, rawPath, startPoint, meta = {}) => {
   if (s.goalPos != null) s.goalPos = String(s.goalPos).replace(/\./g, ",");
 
 
-  let cleanPath = Array.isArray(rawPath) ? [...rawPath] : [];
-  if (cleanPath.length > 0 && String(cleanPath[0]) === String(startPoint)) cleanPath.shift();
+  let cleanPath = Array.isArray(rawPath) ? rawPath.map(normPos) : [];
+  if (cleanPath.length > 0 && String(cleanPath[0]) === String(startStr)) cleanPath.shift();
   if (cleanPath.length === 0) return;
 
   // finalPos = điểm cuối của fullPath (thường là bến/returnTarget)
   s.finalPos = cleanPath.length ? String(cleanPath[cleanPath.length - 1]) : null;
 
   clearVehicleOccupancy(vehicleId);
-  occupancy[String(startPoint)] = vehicleId;
+  occupancy[String(startStr)] = vehicleId;
 
   s.pathQueue = cleanPath;
-  s.lastPosition = String(startPoint);
+  s.lastPosition = String(startStr);
 
   s.lastVector = { x: 0, y: 1 };
   s.currentTarget = null;
