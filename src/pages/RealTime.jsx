@@ -6,11 +6,13 @@ import io from "socket.io-client";
 import MapGrid from "../components/MapGrid";
 import ClockDisplay from "../components/ClockDisplay";
 import DeliveryLog from "../components/DeliveryLog";
+
 import PageSwitchButtons from "../components/PageSwitchButtons";
 import CollisionAlert from "../components/CollisionAlert";
 import ControlPanel from "../components/ControlPanel";
 import { aStarSearch } from "../utils/aStar";
 import { planMultiCarsRoute, pathToMcuCommands } from "../utils/routePlanner";
+
 
 const SOCKET_SERVER_URL =
   import.meta.env.VITE_SOCKET_URL || `${window.location.protocol}//${window.location.hostname}:5000`;
@@ -383,16 +385,16 @@ export default function RealTime() {
   };
 
   // ===== helpers =====
-  const normalizePos = (p) => {
-    if (!p) return null;
-    if (Array.isArray(p) && p.length === 2) return [Number(p[0]), Number(p[1])];
-    if (typeof p === "string") {
-      const s = p.trim().replace(".", ",");
-      const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
-      if (parts.length === 2) return [Number(parts[0]), Number(parts[1])];
-    }
-    return null;
-  };
+  // const normalizePos = (p) => {
+  //   if (!p) return null;
+  //   if (Array.isArray(p) && p.length === 2) return [Number(p[0]), Number(p[1])];
+  //   if (typeof p === "string") {
+  //     const s = p.trim().replace(".", ",");
+  //     const parts = s.split(",").map((x) => x.trim()).filter(Boolean);
+  //     if (parts.length === 2) return [Number(parts[0]), Number(parts[1])];
+  //   }
+  //   return null;
+  // };
 
   const debugLog = (msg) => {
     const now = new Date().toLocaleString("vi-VN", {
@@ -559,18 +561,26 @@ useEffect(() => {
     // DONE/IDLE là kết thúc (OK có thể chỉ ACK từng node)
     const rawStatus = String(payload?.status || "").toUpperCase();
     const isTerminal = rawStatus === "DONE" || rawStatus === "IDLE";
+       const isHome =
+       Array.isArray(pos) &&
+       pos[0] === HOME[0] &&
+       pos[1] === HOME[1];
 
-    setVehicles((prev) =>
-      prev.map((v) =>
-        v.id === vid
-          ? {
-              ...v,
-              pos: [pos[0], pos[1]],
-              ...(isTerminal ? { status: "idle", tripLog: [] } : null),
-            }
-          : v
-      )
-    );
+       const shouldClearRoute = isTerminal && isHome;
+
+       setVehicles((prev) =>
+        prev.map((v) =>
+          v.id === vid
+            ? {
+                ...v,
+                pos: [pos[0], pos[1]],
+                ...(shouldClearRoute
+                  ? { status: "idle", tripLog: [] }
+                  : {}),
+              }
+            : v
+        )
+      );
     
         // ===== Gate progress: start xe sau khi xe lead đi được N node (delayTicks) =====
         const gate = runGateRef.current;
@@ -645,9 +655,29 @@ useEffect(() => {
     try { delete activeTripRef.current[vehicleId]; } catch(e) {}
 
     setVehicles((prev) =>
-      prev.map((v) =>
-        v.id === vehicleId ? { ...v, status: "idle", tripLog: [] } : v
-      )
+      prev.map((v) => {
+        if (v.id !== vehicleId) return v;
+    
+        const currentPos = normalizePos(v.pos);
+        const returnPath = currentPos
+          ? aStarSearch(currentPos, HOME, true, [1, 1], deadZoneSetRef.current)
+          : null;
+    
+        if (returnPath && returnPath.length > 1) {
+          return {
+            ...v,
+            endPos: HOME,
+            status: "moving",   // hoặc "returning" nếu MapGrid support
+            tripLog: returnPath,
+          };
+        }
+    
+        return {
+          ...v,
+          status: "idle",
+          tripLog: [],
+        };
+      })
     );
   });
 
