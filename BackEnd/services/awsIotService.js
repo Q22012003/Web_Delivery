@@ -18,6 +18,7 @@ const MIN_HOLD_MS = Number(process.env.MIN_HOLD_MS || 1200);
 const TOPICS = {
   V1: { pubCmd: "car/V1/command", subPos: "car/V1/matrix_position" },
   V2: { pubCmd: "car/V2/command", subPos: "car/V2/matrix_position" },
+  V3: { pubCmd: "car/V3/command", subPos: "car/V3/matrix_position" },
 };
 
 // ====== occupancy (source-of-truth = last ACK node từ MCU) ======
@@ -60,8 +61,9 @@ const inferLeadIdForBatch = (batchId) => {
 
 // ====== session state theo xe ======
 const sessions = {
-  V1: { pathQueue: [], isNavigating: false, lastPosition: null, prevPosition: null, meta: null, lastVector: { x: 0, y: 1 }, currentTarget: null, waiting: false, waitToken: 0 },
-  V2: { pathQueue: [], isNavigating: false, lastPosition: null, prevPosition: null, meta: null, lastVector: { x: 0, y: 1 }, currentTarget: null, waiting: false, waitToken: 0 },
+  V1: { pathQueue: [], isNavigating: false, lastPosition: null, prevPosition: null, meta: null, lastVector: { x: 0, y: 1 }, currentTarget: null, waiting: false, waitToken: 0, preserveHeadingOnNextStart: false },
+  V2: { pathQueue: [], isNavigating: false, lastPosition: null, prevPosition: null, meta: null, lastVector: { x: 0, y: 1 }, currentTarget: null, waiting: false, waitToken: 0, preserveHeadingOnNextStart: false },
+  V3: { pathQueue: [], isNavigating: false, lastPosition: null, prevPosition: null, meta: null, lastVector: { x: 0, y: 1 }, currentTarget: null, waiting: false, waitToken: 0, preserveHeadingOnNextStart: false },
 };
 
 // throttle spam position khi xe đứng yên
@@ -615,6 +617,7 @@ const setupConnectionEvents = async () => {
       let vehicleId = null;
       if (topic === TOPICS.V1.subPos) vehicleId = "V1";
       if (topic === TOPICS.V2.subPos) vehicleId = "V2";
+      if (topic === TOPICS.V3.subPos) vehicleId = "V3";
       if (!vehicleId) return;
 
       if (!data.position) return;
@@ -737,8 +740,10 @@ try {
   const subscribeAll = async () => {
     await connection.subscribe(TOPICS.V1.subPos, mqtt.QoS.AtLeastOnce, onPublish);
     await connection.subscribe(TOPICS.V2.subPos, mqtt.QoS.AtLeastOnce, onPublish);
+    await connection.subscribe(TOPICS.V3.subPos, mqtt.QoS.AtLeastOnce, onPublish);
     console.log(`✓ Subscribed: ${TOPICS.V1.subPos}`);
     console.log(`✓ Subscribed: ${TOPICS.V2.subPos}`);
+    console.log(`✓ Subscribed: ${TOPICS.V3.subPos}`);
   };
 
   connection.on("connect", () => {

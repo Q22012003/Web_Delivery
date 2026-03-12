@@ -62,9 +62,10 @@ const makeVehicle = (id, pos, endPos) => ({
 const buildDefaultVehicles = () => ([
   makeVehicle("V1", START_SPOTS[0], [5, 3]),
   makeVehicle("V2", START_SPOTS[1], [5, 5]),
+  makeVehicle("V3", START_SPOTS[2], [5, 1]),
 ]);
 
-const buildDefaultCargo = () => ({ V1: "", V2: "" });
+const buildDefaultCargo = () => ({ V1: "", V2: "", V3: "" });
 
 // Shared (Home + RealTime) deadzone storage key
 const DEADZONE_LS_KEY = "deadZones";
@@ -844,22 +845,23 @@ useEffect(() => {
   };
 
   const handleStartTogetherSafeMulti = () => {
-      const active = vehicles
-        .filter((v) => v.id === "V1" || v.id === "V2") // ✅ chỉ chạy 2 xe (V1,V2) vì chỉ có 2 chứng chỉ AWS
-        .map((v) => ({
-          id: v.id,
-          startPos: normalizePos(v.pos),
-          endPos: normalizePos(v.endPos),
-        }))
-        .filter((v) => v.startPos && v.endPos);
+    const active = vehicles
+      .filter((v) => v.id === "V1" || v.id === "V2" || v.id === "V3")
+      .map((v) => ({
+        id: v.id,
+        startPos: normalizePos(v.pos),
+        endPos: normalizePos(v.endPos),
+      }))
+      .filter((v) => v.startPos && v.endPos);
 
   // Nút "chạy cùng lúc" yêu cầu đủ 2 xe (V1 & V2) có điểm đến hợp lệ
   const hasV1 = active.some((v) => v.id === "V1");
   const hasV2 = active.some((v) => v.id === "V2");
-  if (!hasV1 || !hasV2) {
-    setAlertMessage("⚠️ Cần đặt điểm đến hợp lệ cho cả V1 và V2 trước khi chạy cùng lúc!");
+  const hasV3 = active.some((v) => v.id === "V3");
+  if (!hasV1 || !hasV2 || !hasV3) {
+    setAlertMessage("⚠️ Cần đặt điểm đến hợp lệ cho cả V1, V2 và V3 trước khi chạy cùng lúc!");
     setTimeout(() => setAlertMessage(""), 5000);
-    debugLog(`active thiếu xe: hasV1=${hasV1}, hasV2=${hasV2}`);
+    debugLog(`active thiếu xe: hasV1=${hasV1}, hasV2=${hasV2}, hasV3=${hasV3}`);
     return;
   }
 
@@ -873,7 +875,7 @@ useEffect(() => {
     vehicles: active,
     baseDelayTicks: 4,
     baseDelayMs: 3500,
-    maxCars: 2,
+    maxCars: 3,
 	    blockedCells: deadZoneSetRef.current,
   });
 
